@@ -97,7 +97,7 @@ export default function App() {
     const value = await api<Session>(`/api/v1/sessions/${id}`)
     setActive(value)
     setView('console')
-    const latestTask = [...value.messages].reverse().find(message => message.task_id)?.task_id
+    const latestTask = [...(value.messages ?? [])].reverse().find(message => message.task_id)?.task_id
     if (latestTask) {
       try { await syncTask(latestTask) } catch { setTask(null); setApproval(null); setTraceEvents([]) }
     } else {
@@ -239,8 +239,8 @@ export default function App() {
 
   const renderConsole = () => <>
     <section className="messages">
-      {!active?.messages.length && <div className="welcome"><div className="orb">S</div><h2>从真实系统证据开始</h2><p>可输入“查看 CPU 和内存”，或在受控 Demo Lab 中输入“为什么 Web 服务启动失败？帮我恢复。”每个写动作都会展示精确目标、风险、过期时间和独立审批。</p></div>}
-      {active?.messages.map(message => <article key={message.message_id} className={`message ${message.role}`}><div className="avatar">{message.role === 'user' ? '你' : 'S'}</div><div><span className="role">{message.role === 'user' ? '运维人员' : 'SafeOps'}</span><SafeMarkdown content={message.content} /></div></article>)}
+      {!active?.messages?.length && <div className="welcome"><div className="orb">S</div><h2>从真实系统证据开始</h2><p>可输入“查看 CPU 和内存”，或在受控 Demo Lab 中输入“为什么 Web 服务启动失败？帮我恢复。”每个写动作都会展示精确目标、风险、过期时间和独立审批。</p></div>}
+      {active?.messages?.map(message => <article key={message.message_id} className={`message ${message.role}`}><div className="avatar">{message.role === 'user' ? '你' : 'S'}</div><div><span className="role">{message.role === 'user' ? '运维人员' : 'SafeOps'}</span><SafeMarkdown content={message.content} /></div></article>)}
       {progress.length > 0 && <div className="progress-card"><strong>{busy ? '任务运行中' : '任务事件'}</strong>{progress.map((item, index) => <div key={`${index}-${item}`}><i className={index === progress.length - 1 && busy ? 'pulse' : ''} />{item}</div>)}</div>}
       {approval?.status === 'PENDING' && task?.pending_action && <section className="approval-card" aria-live="polite">
         <div className="approval-heading"><div><span>人工审批</span><h3>{task.pending_action.proposal.tool}</h3></div><b className={`risk ${task.pending_action.risk.risk_level}`}>{riskLabel(task.pending_action.risk.risk_level)}</b></div>
@@ -278,7 +278,7 @@ export default function App() {
     </>}
     {view === 'safety' && <><div className="page-lead"><h2>本地安全决策面</h2><p>Tool 自报风险不可信；本地 Policy、Intent Guard、目标快照与执行器重验证才是授权依据。</p></div>
       <div className="boundary-grid"><Metric label="任意命令工具" value="0" detail="未知写能力 fail closed" /><Metric label="待审批" value={String(overview?.approvals.PENDING || 0)} detail="每个动作精确绑定" /><Metric label="执行边界" value="Unix Socket" detail="无公网特权 TCP" /><Metric label="永久清理" value="无 Handler" detail="L3 默认拒绝" /></div>
-      <section className="workspace-card"><h3>审批记录</h3>{approvals.length ? approvals.slice(0, 20).map(item => <div className="approval-row" key={item.approval_id}><div><span>{item.binding.tool}</span><small>{item.approval_id} · policy {item.binding.policy_version}</small></div><b className={`risk ${item.binding.risk_level}`}>{item.binding.risk_level} · {item.status}</b></div>) : <p className="muted">暂无审批记录</p>}</section>
+      <section className="workspace-card"><h3>审批记录</h3>{approvals?.length ? approvals.slice(0, 20).map(item => <div className="approval-row" key={item.approval_id}><div><span>{item.binding.tool}</span><small>{item.approval_id} · policy {item.binding.policy_version}</small></div><b className={`risk ${item.binding.risk_level}`}>{item.binding.risk_level} · {item.status}</b></div>) : <p className="muted">暂无审批记录</p>}</section>
     </>}
     {view === 'rca' && <><div className="page-lead"><h2>当前任务根因视图</h2><p>展示候选原因、已用证据和缺失证据；D3 不会伪装成确定根因。</p></div>
       <div className="workspace-grid"><section className="workspace-card"><h3>任务发现</h3>{task?.findings?.length ? task.findings.map(item => <p className="evidence-item" key={item}>{item}</p>) : <p className="muted">选择含 RCA 的任务后显示发现。</p>}<div className="evidence-count">证据引用：{task?.evidence_refs?.length || 0}</div></section><section className="workspace-card"><h3>RCA / Knowledge 事件</h3>{rcaEvents.length ? rcaEvents.map(event => <details className="audit-detail" key={event.sequence}><summary>#{event.sequence} {event.type}</summary><pre>{JSON.stringify(event.data, null, 2)}</pre></details>) : <p className="muted">当前 Trace 尚无 RCA_RESULT。</p>}</section></div>

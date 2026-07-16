@@ -1,0 +1,5 @@
+blank_issues_enabled: false
+contact_links:
+  - name: 私密安全漏洞报告
+    url: https://github.com/linxitian/safeops-agent/security/advisories/new
+    about: 请勿公开披露漏洞、凭据或可利用细节；请通过 Security Advisory 私密提交。

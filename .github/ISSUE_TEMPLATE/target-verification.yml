@@ -1,0 +1,52 @@
+name: 目标机验证记录
+description: 记录银河麒麟 V11 LoongArch64 原生测试和部署证据
+title: "[Target]: "
+body:
+  - type: markdown
+    attributes:
+      value: |
+        只有官方目标机上的原生报告才能支持 `TARGET_VERIFIED`。交叉构建结果请勿填作目标机证据。
+
+  - type: input
+    id: release
+    attributes:
+      label: 发布版本或提交
+      placeholder: tag、完整 commit SHA 或发布包 SHA-256
+    validations:
+      required: true
+
+  - type: textarea
+    id: target
+    attributes:
+      label: 目标环境
+      description: 记录 Kylin 版本、内核、LoongArch64 CPU/ABI 和 VM 来源。
+    validations:
+      required: true
+
+  - type: checkboxes
+    id: stages
+    attributes:
+      label: 已完成阶段
+      options:
+        - label: 已校验发布包 SHA-256
+        - label: 已执行 `targetctl probe`
+        - label: 已执行 `targetctl test`
+        - label: 已完成安装、启动和 `/healthz` 检查
+        - label: 已完成受控 Demo 与 Task/Trace 审计
+        - label: 已完成卸载及数据保留检查
+
+  - type: textarea
+    id: artifacts
+    attributes:
+      label: 证据位置
+      description: 提供已脱敏报告、Trace、截图或构建产物的链接/路径，不要粘贴凭据。
+    validations:
+      required: true
+
+  - type: textarea
+    id: result
+    attributes:
+      label: 结果与阻塞项
+      description: 使用证据支持的状态语言，并列出失败阶段或缺失证据。
+    validations:
+      required: true

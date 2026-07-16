@@ -1,0 +1,11 @@
+* @linxitian
+
+# Changes to policy, privilege boundaries, deployment, and audit integrity
+# always require an explicit owner review once branch protection is enabled.
+/.github/ @linxitian
+/deploy/ @linxitian
+/internal/executor/ @linxitian
+/internal/guard/ @linxitian
+/internal/platform/ @linxitian
+/internal/trace/ @linxitian
+/policies/ @linxitian

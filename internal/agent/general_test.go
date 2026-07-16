@@ -55,6 +55,59 @@ func TestGeneralRuntimeReentersPlannerWithToolResult(t *testing.T) {
 	}
 }
 
+func TestGeneralRuntimeBootstrapsEvidenceWhenPlannerFinalsTooEarly(t *testing.T) {
+	ctx := context.Background()
+	store, err := storage.NewFileStore(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	traceWriter, err := trace.NewWriter(store.Root() + "/traces")
+	if err != nil {
+		t.Fatal(err)
+	}
+	now := time.Now().UTC()
+	s := session.Session{ID: "ses_bootstrap", Name: "general", CreatedAt: now, UpdatedAt: now}
+	if err := store.SaveSession(ctx, s); err != nil {
+		t.Fatal(err)
+	}
+	tools := fakeGeneralTools{}
+	planner := &sequencePlanner{decisions: []llm.Decision{
+		{Kind: llm.DecisionFinal, DecisionSummary: "直接回答", FinalAnswer: "没有证据的回答不应完成。"},
+		{Kind: llm.DecisionFinal, DecisionSummary: "基于补充证据完成", FinalAnswer: "已基于 trace 证据完成。"},
+	}}
+	var events []RuntimeEvent
+	orchestrator := &Orchestrator{Store: store, Registry: tools, Capabilities: tools, Planner: planner, Safety: fakeSafety{}, Trace: traceWriter, ToolTimeout: time.Second}
+	if _, err := orchestrator.Prepare(ctx, "task_bootstrap", s.ID, "请检查当前系统情况"); err != nil {
+		t.Fatal(err)
+	}
+	completed, err := orchestrator.Run(ctx, "task_bootstrap", s.ID, "请检查当前系统情况", func(event RuntimeEvent) { events = append(events, event) })
+	if err != nil {
+		t.Fatal(err)
+	}
+	if completed.State != task.Completed || completed.Runtime.Iterations != 2 || completed.Runtime.ToolCalls != 1 || len(completed.EvidenceRefs) != 1 {
+		t.Fatalf("early final was not converted into evidence collection: %+v", completed)
+	}
+	if completed.Plan[0].Tool != "system.get_load_average" {
+		t.Fatalf("unexpected bootstrap tool: %+v", completed.Plan)
+	}
+	if !planner.sawObservation {
+		t.Fatal("bootstrap evidence did not re-enter the planner")
+	}
+	sawGuardrailEvent := false
+	for _, event := range events {
+		if event.Message == "模型过早给出结论，正在补充 MCP 证据" {
+			sawGuardrailEvent = true
+			break
+		}
+	}
+	if !sawGuardrailEvent {
+		t.Fatal("operator event for bootstrap evidence was not emitted")
+	}
+	if err := traceWriter.VerifyIntegrity(completed.ID); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestGeneralRuntimeRejectsUnavailableTool(t *testing.T) {
 	ctx := context.Background()
 	store, _ := storage.NewFileStore(t.TempDir())

@@ -38,6 +38,26 @@ func TestOpenAICompatibleDecisionContract(t *testing.T) {
 	}
 }
 
+func TestDecodeStructuredDecisionAcceptsAnswerAlias(t *testing.T) {
+	decision, err := decodeStructuredDecision(`{"kind":"final","decision_summary":"基于证据完成","answer":"已引用 trace://task/1 的 MCP 证据。"}`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if decision.Kind != DecisionFinal || decision.FinalAnswer == "" {
+		t.Fatalf("answer alias was not normalized: %+v", decision)
+	}
+	if err := validateDecision(decision); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestDecodeStructuredDecisionRejectsAmbiguousAnswerAlias(t *testing.T) {
+	_, err := decodeStructuredDecision(`{"kind":"final","decision_summary":"x","answer":"a","final_answer":"b"}`)
+	if err == nil {
+		t.Fatal("conflicting answer aliases were accepted")
+	}
+}
+
 func TestOpenAICompatibleRejectsMalformedOrUnsafeDecision(t *testing.T) {
 	for name, content := range map[string]string{
 		"unknown field": `{"kind":"tool","decision_summary":"x","server_id":"x","tool":"x","arguments":{},"shell":"rm -rf /"}`,

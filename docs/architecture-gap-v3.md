@@ -15,9 +15,9 @@ Repository baseline: the requested workspace was an empty, non-Git directory and
 
 Go 1.26.4 was installed in the user directory from the official Go archive after its published SHA-256 was verified. The module targets Go 1.25 because the pinned MCP SDK supports it. `make` remains absent on this development host, so equivalent underlying validation commands were run directly.
 
-## Requirement-by-requirement gap
+## M3 snapshot gap
 
-| Area | Current evidence | Status | Required gap closure |
+| Area | M3 snapshot evidence | Snapshot status | Required gap closure |
 |---|---|---:|---|
 | Five-pillar architecture | All five have real modules/tests; only the read slice is end-to-end and executor is dry-run | PARTIAL | General Agent, write approval/resume/verify/rollback, full trace/UI and demos |
 | Unified perception | Typed system/process/network/systemd/journal/file/config access plus Procfs Observation baseline | PARTIAL | Normalize all domains as bounded Observation batches with partial/error budgets |
@@ -44,7 +44,7 @@ Go 1.26.4 was installed in the user directory from the official Go archive after
 | Release/deploy | Placeholder release script fails explicitly | NOT_STARTED | install/uninstall, systemd hardening, staged release and SHA-256 |
 | README accuracy | Replaced scaffold with evidence-backed status | IMPLEMENTED | Keep synchronized at each milestone |
 
-## Immediate architectural risks
+## M3 snapshot risks
 
 1. A narrow, deterministic CPU/memory parser is only a validated vertical slice, not general natural-language or contextual reasoning.
 2. JSON session documents currently embed messages; this is safe for the slice but should migrate to an append-only message store before long sessions.
@@ -54,6 +54,6 @@ Go 1.26.4 was installed in the user directory from the official Go archive after
 6. The eight MCP domains and 39 read tools are present; periodic health/dependency/version-history behavior remains incomplete.
 7. Target compatibility remains unverified despite a successful LoongArch cross-build.
 
-## Priority decision
+## M3 priority decision
 
 Keep the live read-only slice as the regression anchor. Next close the general durable Agent/provider gap and connect approval → dry-run executor → verification trace before adding any Lab-only real Handler; collector normalization can proceed alongside that work. UI polish remains behind safety-loop completion.

@@ -41,6 +41,7 @@ Updated: 2026-07-16
 - Implemented durable exact-bound approval records, HMAC ActionEnvelope, nonce replay prevention, executor-side policy/intent/risk/scope/target revalidation and a Unix-socket dry-run executor.
 - Implemented deterministic Evidence Graph, D1-D3 RCA confidence formula and pure-Go BM25 knowledge retrieval with source/score/matched-term provenance; connected it to port-conflict diagnosis.
 - Added an OpenAI-compatible structured-output Provider and a bounded general Agent loop with discovered-schema validation, Tool Result re-entry, 12-iteration/30-call limits, replan bounds and no-progress detection.
+- Added Provider configuration from `SAFEOPS_LLM_*` environment variables or working-directory `.env`, with real environment precedence and a bounded optional timeout.
 - Added approval resolve APIs and automatic Task resume through EXECUTING/VERIFYING, including server-start recovery of resolved approvals.
 - Added real allowlisted Lab handlers for atomic file quarantine/restore, fixed service restart and fixed SIGTERM process termination; permanent purge and arbitrary command execution remain unavailable.
 - Added selected-resource persistence, ordinal/pronoun resolution and a tested two-turn quarantine then restore flow with post-action context cleanup.

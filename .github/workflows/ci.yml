@@ -1,0 +1,69 @@
+name: SafeOps CI
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: safeops-ci-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  full-package-test:
+    name: Full package test
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      CGO_ENABLED: "0"
+      GOCACHE: ${{ runner.temp }}/go-build
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+
+      - name: Install frontend dependencies
+        run: npm ci --prefix web
+
+      - name: Download Go modules
+        run: go mod download
+
+      - name: Frontend component and accessibility tests
+        run: npm --prefix web test
+
+      - name: Backend package tests
+        run: go test ./...
+
+      - name: Frontend lint and type check
+        run: npm --prefix web run lint
+
+      - name: Backend vet
+        run: go vet ./...
+
+      - name: Frontend production build
+        run: npm --prefix web run build
+
+      - name: linux/amd64 command build
+        run: make build-linux-amd64
+
+      - name: linux/loong64 command build
+        run: make build-loong64
+
+      - name: Benchmark suite
+        run: make benchmark

@@ -113,15 +113,16 @@ npm --prefix web run dev
 
 MCP 注册配置为 `config/mcp_servers.yaml`。当前启用 system、process、network、journal、service、diagnostic、file、config 八个内建 Server。file/config 只能访问 Manifest 参数中的绝对 allowlist 根；配置工具不返回正文。
 
-OpenAI Compatible Provider 使用：
+OpenAI Compatible Provider 可通过仓库根目录 `.env` 或真实环境变量配置；真实环境变量会覆盖 `.env`。可从 `.env.example` 复制后填写：
 
 ```text
 SAFEOPS_LLM_BASE_URL
 SAFEOPS_LLM_API_KEY
 SAFEOPS_LLM_MODEL
+SAFEOPS_LLM_TIMEOUT_SECONDS
 ```
 
-三个变量必须同时设置；代码不选择默认模型。未设置时不会创建 Provider，也不影响 CPU/内存纵切片。启用审批绑定的写动作准备还需启动参数：
+前三个变量必须同时设置；代码不选择默认模型。`SAFEOPS_LLM_TIMEOUT_SECONDS` 可选，默认 120 秒，允许 1-600 秒。未设置前三个变量时不会创建 Provider，也不影响 CPU/内存纵切片。启用审批绑定的写动作准备还需启动参数：
 
 ```text
 -executor-config ./config/executor.yaml

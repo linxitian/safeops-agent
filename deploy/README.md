@@ -42,6 +42,20 @@ sudo SAFEOPS_EXECUTOR_MODE=lab ./deploy/install.sh
 
 The installer enables and starts `safeops-privexec.service` and `safeops-server.service`, then checks `http://127.0.0.1:8080/healthz`. It installs the four Lab units but does not enable or start them.
 
+## Optional OpenAI-compatible Provider
+
+The installed service reads `/etc/safeops/safeops.env` through systemd. Add Provider credentials there only when the general natural-language runtime or multi-turn file Demo must be validated:
+
+```text
+SAFEOPS_EXECUTOR_MODE=lab
+SAFEOPS_LLM_BASE_URL=https://provider.example/v1
+SAFEOPS_LLM_API_KEY=replace-with-real-secret
+SAFEOPS_LLM_MODEL=provider-model
+SAFEOPS_LLM_TIMEOUT_SECONDS=120
+```
+
+`SAFEOPS_LLM_TIMEOUT_SECONDS` is optional and must be 1-600 seconds. Keep the file owned by `root:safeops` with mode `0640`, restart `safeops-server.service` after editing, and never include the API key in returned reports, traces or screenshots. Local development may instead use repository-root `.env`; release bundles do not require or ship one.
+
 Uninstall preserves `/var/lib/safeops` by default:
 
 ```bash

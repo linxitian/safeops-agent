@@ -77,7 +77,7 @@ sudo systemctl stop safeops-log-writer.service
 
 ## 4. Multi-turn file context and rollback Demo
 
-This general natural-language flow needs the explicitly configured OpenAI-compatible Provider; do not fabricate provider evidence when credentials are absent. Put `SAFEOPS_LLM_BASE_URL`, `SAFEOPS_LLM_API_KEY` and `SAFEOPS_LLM_MODEL` in root-managed `/etc/safeops/safeops.env`, keep it mode 0640 with group `safeops`, restart only `safeops-server.service`, and never include the secret in returned reports or screenshots.
+This general natural-language flow needs the explicitly configured OpenAI-compatible Provider; do not fabricate provider evidence when credentials are absent. Put `SAFEOPS_LLM_BASE_URL`, `SAFEOPS_LLM_API_KEY`, `SAFEOPS_LLM_MODEL` and optional `SAFEOPS_LLM_TIMEOUT_SECONDS` in root-managed `/etc/safeops/safeops.env`, keep it mode 0640 with group `safeops`, restart only `safeops-server.service`, and never include the secret in returned reports or screenshots.
 
 Create three bounded allowlisted files without a shell command tool:
 

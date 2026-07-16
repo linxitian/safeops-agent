@@ -143,4 +143,28 @@ describe('SafeOps Chinese operational UI', () => {
     const severe = results.violations.filter(item => item.impact === 'serious' || item.impact === 'critical')
     expect(severe.map(item => ({ id: item.id, nodes: item.nodes.map(node => node.target) }))).toEqual([])
   })
+
+  it('renders empty API collections without crashing', async () => {
+    const user = userEvent.setup()
+    const emptySession = { ...session, name: '空会话', messages: null }
+    vi.mocked(fetch).mockImplementation(async (input: RequestInfo | URL) => {
+      const url = String(input)
+      if (url.startsWith('/api/v1/sessions?')) return jsonResponse({ sessions: [emptySession] })
+      if (url === '/api/v1/sessions/session-1') return jsonResponse(emptySession)
+      if (url === '/api/v1/overview') return jsonResponse({ ...overview, approvals: { PENDING: 0 } })
+      if (url === '/api/v1/mcp/servers') return jsonResponse(servers)
+      if (url === '/api/v1/approvals') return jsonResponse({ approvals: null })
+      if (url.startsWith('/api/v1/tasks?')) return jsonResponse({ tasks: [] })
+      return jsonResponse({ error: `unhandled test route: ${url}` }, 404)
+    })
+
+    render(<App />)
+
+    await screen.findByRole('heading', { name: '空会话' })
+    expect(screen.getByText('从真实系统证据开始')).toBeTruthy()
+
+    await user.click(screen.getByRole('button', { name: '安全中心' }))
+    await screen.findByRole('heading', { name: '本地安全决策面' })
+    expect(screen.getByText('暂无审批记录')).toBeTruthy()
+  })
 })

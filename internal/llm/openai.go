@@ -10,11 +10,13 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"strconv"
 	"strings"
 	"time"
 )
 
 const maxResponseBytes = 1 << 20
+const defaultProviderTimeout = 120 * time.Second
 
 var ErrNotConfigured = errors.New("OpenAI-compatible provider is not configured")
 
@@ -22,6 +24,7 @@ type Config struct {
 	BaseURL string
 	APIKey  string
 	Model   string
+	Timeout time.Duration
 	Client  *http.Client
 }
 
@@ -33,7 +36,24 @@ type OpenAICompatible struct {
 }
 
 func ConfigFromEnv() (Config, error) {
-	config := Config{BaseURL: strings.TrimSpace(os.Getenv("SAFEOPS_LLM_BASE_URL")), APIKey: strings.TrimSpace(os.Getenv("SAFEOPS_LLM_API_KEY")), Model: strings.TrimSpace(os.Getenv("SAFEOPS_LLM_MODEL"))}
+	fileValues, err := loadDotEnvFile(".env")
+	if err != nil {
+		return Config{}, err
+	}
+	config := Config{
+		BaseURL: valueFromEnvOrFile("SAFEOPS_LLM_BASE_URL", fileValues),
+		APIKey:  valueFromEnvOrFile("SAFEOPS_LLM_API_KEY", fileValues),
+		Model:   valueFromEnvOrFile("SAFEOPS_LLM_MODEL", fileValues),
+		Timeout: defaultProviderTimeout,
+	}
+	timeoutRaw := valueFromEnvOrFile("SAFEOPS_LLM_TIMEOUT_SECONDS", fileValues)
+	if timeoutRaw != "" {
+		seconds, err := strconv.Atoi(timeoutRaw)
+		if err != nil || seconds <= 0 || seconds > 600 {
+			return Config{}, errors.New("SAFEOPS_LLM_TIMEOUT_SECONDS must be an integer within 1-600")
+		}
+		config.Timeout = time.Duration(seconds) * time.Second
+	}
 	if config.BaseURL == "" && config.APIKey == "" && config.Model == "" {
 		return Config{}, ErrNotConfigured
 	}
@@ -54,7 +74,11 @@ func NewOpenAICompatible(config Config) (*OpenAICompatible, error) {
 	base.Path = strings.TrimRight(base.Path, "/") + "/chat/completions"
 	client := config.Client
 	if client == nil {
-		client = &http.Client{Timeout: 45 * time.Second}
+		timeout := config.Timeout
+		if timeout <= 0 {
+			timeout = defaultProviderTimeout
+		}
+		client = &http.Client{Timeout: timeout}
 	}
 	return &OpenAICompatible{endpoint: base.String(), apiKey: config.APIKey, model: config.Model, client: client}, nil
 }
@@ -185,4 +209,59 @@ func ensureEOF(decoder *json.Decoder) error {
 		return errors.New("structured decision must contain exactly one JSON object")
 	}
 	return nil
+}
+
+func valueFromEnvOrFile(key string, fileValues map[string]string) string {
+	if value := strings.TrimSpace(os.Getenv(key)); value != "" {
+		return value
+	}
+	return strings.TrimSpace(fileValues[key])
+}
+
+func loadDotEnvFile(path string) (map[string]string, error) {
+	values := map[string]string{}
+	b, err := os.ReadFile(path)
+	if errors.Is(err, os.ErrNotExist) {
+		return values, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("read .env: %w", err)
+	}
+	for lineNumber, raw := range strings.Split(string(b), "\n") {
+		line := strings.TrimSpace(strings.TrimPrefix(raw, "\ufeff"))
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+		line = strings.TrimSpace(strings.TrimPrefix(line, "export "))
+		index := strings.Index(line, "=")
+		if index <= 0 {
+			return nil, fmt.Errorf("parse .env line %d: expected KEY=value", lineNumber+1)
+		}
+		key := strings.TrimSpace(line[:index])
+		if !strings.HasPrefix(key, "SAFEOPS_LLM_") {
+			continue
+		}
+		value, err := parseDotEnvValue(strings.TrimSpace(line[index+1:]))
+		if err != nil {
+			return nil, fmt.Errorf("parse .env line %d: %w", lineNumber+1, err)
+		}
+		values[key] = value
+	}
+	return values, nil
+}
+
+func parseDotEnvValue(value string) (string, error) {
+	if value == "" {
+		return "", nil
+	}
+	if value[0] == '"' || value[0] == '\'' {
+		if len(value) < 2 || value[len(value)-1] != value[0] {
+			return "", errors.New("quoted value is not closed")
+		}
+		return value[1 : len(value)-1], nil
+	}
+	if index := strings.Index(value, " #"); index >= 0 {
+		value = strings.TrimSpace(value[:index])
+	}
+	return value, nil
 }

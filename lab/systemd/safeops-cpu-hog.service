@@ -1,0 +1,21 @@
+[Unit]
+Description=SafeOps controlled CPU pressure Lab
+
+[Service]
+Type=simple
+User=safeops
+Group=safeops
+ExecStart=/opt/safeops/bin/safeops-cpu-hog -duty 70 -workers 1 -duration 5m
+Restart=no
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectSystem=strict
+ProtectHome=yes
+RestrictAddressFamilies=AF_UNIX
+RestrictNamespaces=yes
+LockPersonality=yes
+CPUQuota=90%
+MemoryMax=128M
+
+[Install]
+WantedBy=multi-user.target

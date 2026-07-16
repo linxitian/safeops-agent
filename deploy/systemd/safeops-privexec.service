@@ -1,0 +1,40 @@
+[Unit]
+Description=SafeOps privileged fixed-operation executor
+After=local-fs.target
+Before=safeops-server.service
+
+[Service]
+Type=simple
+User=root
+Group=safeops
+Environment=SAFEOPS_EXECUTOR_MODE=dry-run
+EnvironmentFile=-/etc/safeops/safeops.env
+ExecStart=/opt/safeops/bin/safeops-privexec -socket /run/safeops/privexec.sock -data /var/lib/safeops -policy /etc/safeops/policies/tools.yaml -config /etc/safeops/executor.yaml -secret /etc/safeops/privexec.hmac -mode ${SAFEOPS_EXECUTOR_MODE}
+Restart=on-failure
+RestartSec=2s
+TimeoutStopSec=10s
+RuntimeDirectory=safeops
+RuntimeDirectoryMode=0750
+UMask=0027
+NoNewPrivileges=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectSystem=strict
+ProtectHome=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+ReadWritePaths=/var/lib/safeops /run/safeops
+RestrictAddressFamilies=AF_UNIX
+RestrictNamespaces=yes
+RestrictRealtime=yes
+RestrictSUIDSGID=yes
+LockPersonality=yes
+MemoryDenyWriteExecute=yes
+CapabilityBoundingSet=CAP_KILL CAP_DAC_OVERRIDE CAP_FOWNER
+SystemCallArchitectures=native
+TasksMax=64
+MemoryMax=256M
+
+[Install]
+WantedBy=multi-user.target

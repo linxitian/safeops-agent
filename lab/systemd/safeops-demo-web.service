@@ -1,0 +1,24 @@
+[Unit]
+Description=SafeOps controlled demo web service
+After=network.target
+
+[Service]
+Type=simple
+User=safeops
+Group=safeops
+ExecStart=/opt/safeops/bin/safeops-demo-web -listen 127.0.0.1:18081
+Restart=no
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectSystem=strict
+ProtectHome=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+RestrictAddressFamilies=AF_INET AF_INET6
+RestrictNamespaces=yes
+LockPersonality=yes
+MemoryDenyWriteExecute=yes
+
+[Install]
+WantedBy=multi-user.target

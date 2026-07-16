@@ -1,0 +1,90 @@
+schema_version: 1
+tools:
+  - {name: system.get_overview, effect: read, base_risk: L0, rule_id: read-system}
+  - {name: system.get_cpu_metrics, effect: read, base_risk: L0, rule_id: read-system}
+  - {name: system.get_memory_metrics, effect: read, base_risk: L0, rule_id: read-system}
+  - {name: system.get_disk_usage, effect: read, base_risk: L0, rule_id: read-system}
+  - {name: system.get_load_average, effect: read, base_risk: L0, rule_id: read-system}
+  - {name: system.get_kernel_info, effect: read, base_risk: L0, rule_id: read-system}
+  - {name: system.get_mounts, effect: read, base_risk: L0, rule_id: read-system}
+  - {name: system.get_uptime, effect: read, base_risk: L0, rule_id: read-system}
+  - {name: process.list_top, effect: read, base_risk: L0, rule_id: read-process}
+  - {name: process.search, effect: read, base_risk: L0, rule_id: read-process}
+  - {name: process.get_details, effect: read, base_risk: L0, rule_id: read-process}
+  - {name: process.get_resource_usage, effect: read, base_risk: L0, rule_id: read-process}
+  - {name: process.find_by_port, effect: read, base_risk: L0, rule_id: read-process}
+  - {name: network.list_listeners, effect: read, base_risk: L0, rule_id: read-network}
+  - {name: network.list_connections, effect: read, base_risk: L0, rule_id: read-network}
+  - {name: network.check_port, effect: read, base_risk: L0, rule_id: read-network}
+  - {name: network.get_interfaces, effect: read, base_risk: L0, rule_id: read-network}
+  - {name: network.get_interface_stats, effect: read, base_risk: L0, rule_id: read-network}
+  - {name: journal.get_recent, effect: read, base_risk: L0, rule_id: read-journal}
+  - {name: journal.query_unit, effect: read, base_risk: L0, rule_id: read-journal}
+  - {name: journal.search_errors, effect: read, base_risk: L0, rule_id: read-journal}
+  - {name: journal.get_priority_events, effect: read, base_risk: L0, rule_id: read-journal}
+  - {name: service.get_status, effect: read, base_risk: L0, rule_id: read-service}
+  - {name: service.list_failed, effect: read, base_risk: L0, rule_id: read-service}
+  - {name: service.get_dependencies, effect: read, base_risk: L0, rule_id: read-service}
+  - {name: service.get_restart_count, effect: read, base_risk: L0, rule_id: read-service}
+  - {name: diagnostic.port_conflict, effect: read, base_risk: L0, rule_id: read-diagnostic}
+  - {name: diagnostic.high_cpu, effect: read, base_risk: L0, rule_id: read-diagnostic}
+  - {name: diagnostic.disk_pressure, effect: read, base_risk: L0, rule_id: read-diagnostic}
+  - {name: diagnostic.build_snapshot, effect: read, base_risk: L0, rule_id: read-diagnostic}
+  - {name: file.list_roots, effect: read, base_risk: L0, rule_id: read-file-allowlist}
+  - {name: file.stat, effect: read, base_risk: L0, rule_id: read-file-allowlist}
+  - {name: file.list_directory, effect: read, base_risk: L0, rule_id: read-file-allowlist}
+  - {name: file.sha256, effect: read, base_risk: L0, rule_id: read-file-allowlist}
+  - {name: file.find_large, effect: read, base_risk: L0, rule_id: read-file-allowlist}
+  - {name: config.list_roots, effect: read, base_risk: L0, rule_id: read-config-allowlist}
+  - {name: config.get_metadata, effect: read, base_risk: L0, rule_id: read-config-allowlist}
+  - {name: config.snapshot, effect: read, base_risk: L0, rule_id: read-config-allowlist}
+  - {name: config.diff_snapshot, effect: read, base_risk: L0, rule_id: read-config-allowlist}
+  - name: service.restart
+    effect: write
+    base_risk: L1
+    approval: true
+    reversible: false
+    allowed_target_types: [service]
+    rule_id: service-restart
+  - name: service.start
+    effect: write
+    base_risk: L1
+    approval: true
+    reversible: true
+    allowed_target_types: [service]
+    rule_id: service-start
+  - name: service.stop
+    effect: write
+    base_risk: L2
+    approval: true
+    reversible: true
+    allowed_target_types: [service]
+    rule_id: service-stop
+  - name: process.terminate
+    effect: write
+    base_risk: L2
+    approval: true
+    reversible: false
+    allowed_target_types: [process]
+    rule_id: process-terminate
+  - name: file.quarantine
+    effect: write
+    base_risk: L1
+    approval: true
+    reversible: true
+    allowed_target_types: [file]
+    rule_id: file-quarantine
+  - name: file.restore_quarantine
+    effect: write
+    base_risk: L1
+    approval: true
+    reversible: true
+    allowed_target_types: [file]
+    rule_id: file-restore
+  - name: file.purge_quarantine
+    effect: write
+    base_risk: L3
+    approval: true
+    reversible: false
+    allowed_target_types: [file]
+    rule_id: purge-default-deny

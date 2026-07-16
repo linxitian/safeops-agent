@@ -1,0 +1,10 @@
+document_id: runbook-disk-pressure
+document_type: runbook
+title: SafeOps Lab 磁盘与日志增长调查
+content: |
+  使用 statfs 确认文件系统压力，在 /var/lib/safeops/lab allowlist 内定位大文件、mtime 和写入进程。
+  优先 quarantine 并验证空间变化，不直接永久删除；不得写满真实根分区。
+tags: [disk, log, 大文件, quarantine]
+source: knowledge/runbooks/disk-pressure.yaml
+version: "1"
+

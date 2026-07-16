@@ -1,0 +1,13 @@
+document_id: case-port-conflict-eaddrinuse
+document_type: fault_case
+title: 服务端口冲突与 EADDRINUSE
+content: |
+  服务启动失败并出现 EADDRINUSE 或 address already in use 时，先确认服务期望端口，
+  再关联当前监听 socket、socket inode、进程 PID 与 start time。不能仅凭旧日志终止进程。
+  处置前必须确认占用进程属于授权目标，经过 Guard、风险和审批，执行后验证服务、端口与 HTTP。
+tags: [端口冲突, 服务启动失败, EADDRINUSE, socket, 进程]
+service: safeops-demo-web
+error_patterns: [EADDRINUSE, address already in use]
+source: knowledge/cases/port-conflict.yaml
+version: "1"
+

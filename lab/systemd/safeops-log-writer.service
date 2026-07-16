@@ -1,0 +1,21 @@
+[Unit]
+Description=SafeOps controlled bounded log growth Lab
+
+[Service]
+Type=simple
+User=safeops
+Group=safeops
+ExecStart=/opt/safeops/bin/safeops-log-writer -root /var/lib/safeops/lab -path /var/lib/safeops/lab/growth.log -max-bytes 33554432 -rate 262144 -duration 5m
+Restart=no
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectSystem=strict
+ProtectHome=yes
+ReadWritePaths=/var/lib/safeops/lab
+RestrictAddressFamilies=AF_UNIX
+RestrictNamespaces=yes
+LockPersonality=yes
+MemoryMax=128M
+
+[Install]
+WantedBy=multi-user.target

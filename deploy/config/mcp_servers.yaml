@@ -1,0 +1,105 @@
+servers:
+  - id: system
+    name: safeops-mcp-system
+    display_name: 系统感知
+    version: 0.1.0
+    description: 通过结构化 Linux 接口读取系统指标
+    transport: stdio
+    command: /opt/safeops/bin/mcp-system
+    arguments: []
+    enabled: true
+    health_check: ping
+    source: builtin
+    capabilities: [system, perception, read_only]
+    dependencies: [/proc]
+  - id: process
+    name: safeops-mcp-process
+    display_name: 进程感知
+    version: 0.1.0
+    description: 读取脱敏后的进程状态并关联端口 socket inode
+    transport: stdio
+    command: /opt/safeops/bin/mcp-process
+    arguments: []
+    enabled: true
+    health_check: ping
+    source: builtin
+    capabilities: [process, perception, read_only]
+    dependencies: [/proc]
+  - id: network
+    name: safeops-mcp-network
+    display_name: 网络感知
+    version: 0.1.0
+    description: 读取 socket、端口和网络接口状态
+    transport: stdio
+    command: /opt/safeops/bin/mcp-network
+    arguments: []
+    enabled: true
+    health_check: ping
+    source: builtin
+    capabilities: [network, perception, read_only]
+    dependencies: [/proc]
+  - id: journal
+    name: safeops-mcp-journal
+    display_name: 日志感知
+    version: 0.1.0
+    description: 使用固定 journalctl 参数读取有界、截断、脱敏的 JSON 日志
+    transport: stdio
+    command: /opt/safeops/bin/mcp-journal
+    arguments: []
+    enabled: true
+    health_check: ping
+    source: builtin
+    capabilities: [journal, perception, read_only]
+    dependencies: [journalctl]
+  - id: service
+    name: safeops-mcp-service
+    display_name: 服务感知
+    version: 0.1.0
+    description: 使用固定 systemctl 参数读取服务属性
+    transport: stdio
+    command: /opt/safeops/bin/mcp-service
+    arguments: []
+    enabled: true
+    health_check: ping
+    source: builtin
+    capabilities: [service, perception, read_only]
+    dependencies: [systemctl]
+  - id: diagnostic
+    name: safeops-mcp-diagnostic
+    display_name: 关联诊断
+    version: 0.1.0
+    description: 组合服务、日志、端口、进程与系统指标生成结构化 D1-D3 诊断
+    transport: stdio
+    command: /opt/safeops/bin/mcp-diagnostic
+    arguments: [--knowledge, /etc/safeops/knowledge]
+    enabled: true
+    health_check: ping
+    source: builtin
+    capabilities: [diagnostic, evidence, rca, read_only]
+    dependencies: [/proc, systemctl, journalctl]
+  - id: file
+    name: safeops-mcp-file
+    display_name: 文件感知
+    version: 0.1.0
+    description: 仅在 SafeOps Lab allowlist 内读取文件元数据、目录项和有界哈希
+    transport: stdio
+    command: /opt/safeops/bin/mcp-file
+    arguments: [--root, /var/lib/safeops/lab]
+    enabled: true
+    health_check: ping
+    source: builtin
+    capabilities: [file, perception, allowlisted, read_only]
+    dependencies: [/var/lib/safeops/lab]
+  - id: config
+    name: safeops-mcp-config
+    display_name: 配置感知
+    version: 0.1.0
+    description: 对受管理配置根生成有界哈希快照和差异且不返回正文
+    transport: stdio
+    command: /opt/safeops/bin/mcp-config
+    arguments: [--roots, /etc/safeops,/var/lib/safeops/lab/config]
+    enabled: true
+    health_check: ping
+    source: builtin
+    capabilities: [config, perception, allowlisted, read_only]
+    dependencies: [/etc/safeops, /var/lib/safeops/lab/config]

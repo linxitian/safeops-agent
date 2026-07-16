@@ -1,0 +1,21 @@
+[Unit]
+Description=SafeOps controlled port-conflict holder
+After=network.target
+
+[Service]
+Type=simple
+User=safeops
+Group=safeops
+ExecStart=/opt/safeops/bin/safeops-port-holder -listen 127.0.0.1:18081
+Restart=no
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectSystem=strict
+ProtectHome=yes
+RestrictAddressFamilies=AF_INET AF_INET6
+RestrictNamespaces=yes
+LockPersonality=yes
+MemoryDenyWriteExecute=yes
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,39 @@
+[Unit]
+Description=SafeOps Agent API and Chinese Web console
+After=network.target safeops-privexec.service
+Requires=safeops-privexec.service
+
+[Service]
+Type=simple
+User=safeops
+Group=safeops
+WorkingDirectory=/opt/safeops
+EnvironmentFile=-/etc/safeops/safeops.env
+ExecStart=/opt/safeops/bin/safeops-server -listen 127.0.0.1:8080 -data /var/lib/safeops -mcp-config /etc/safeops/mcp_servers.yaml -policy /etc/safeops/policies/tools.yaml -executor-socket /run/safeops/privexec.sock -executor-config /etc/safeops/executor.yaml -executor-secret /etc/safeops/privexec.hmac -web-root /opt/safeops/web
+Restart=on-failure
+RestartSec=3s
+TimeoutStopSec=15s
+UMask=0027
+NoNewPrivileges=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectSystem=strict
+ProtectHome=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+ReadWritePaths=/var/lib/safeops
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+RestrictNamespaces=yes
+RestrictRealtime=yes
+RestrictSUIDSGID=yes
+LockPersonality=yes
+MemoryDenyWriteExecute=yes
+CapabilityBoundingSet=
+SystemCallArchitectures=native
+TasksMax=256
+LimitNOFILE=4096
+MemoryMax=1G
+
+[Install]
+WantedBy=multi-user.target

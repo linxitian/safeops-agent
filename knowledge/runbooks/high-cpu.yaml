@@ -1,0 +1,10 @@
+document_id: runbook-high-cpu
+document_type: runbook
+title: Linux CPU 高占用调查
+content: |
+  先读取 load average 和采样窗口 CPU，再定位进程 CPU 变化而不是只看启动以来累计 ticks。
+  关联 PID start time、服务、日志和系统状态。证据不足时保留候选原因，不直接终止进程。
+tags: [CPU, load, process, 性能]
+source: knowledge/runbooks/high-cpu.yaml
+version: "1"
+

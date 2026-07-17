@@ -32,6 +32,11 @@ func (o *Orchestrator) runGeneral(ctx context.Context, value task.Task, emit Eve
 	for _, capability := range capabilities {
 		available[capability.ServerID+"\x00"+capability.Name] = capability
 	}
+	durableSession, err := o.Store.GetSession(ctx, value.SessionID)
+	if err != nil {
+		return value, err
+	}
+	plannerSessionContext := buildPlannerSessionContext(durableSession, value.ID)
 
 	fresh := value.IntentType == ""
 	if fresh {
@@ -44,7 +49,11 @@ func (o *Orchestrator) runGeneral(ctx context.Context, value task.Task, emit Eve
 		if err := o.appendTrace(ctx, value, trace.IntentParsed, map[string]any{"intent_type": value.IntentType, "provider": "openai-compatible", "effect_scope": "discovered read MCP tools only"}); err != nil {
 			return value, err
 		}
-		if err := o.appendTrace(ctx, value, trace.PlanCreated, map[string]any{"strategy": "bounded ReAct / Plan-Execute", "max_iterations": value.Runtime.MaxIterations, "max_tool_calls": value.Runtime.MaxToolCalls, "deadline_at": value.Runtime.DeadlineAt, "completion_criteria": "at least one MCP evidence reference and a structured final decision"}); err != nil {
+		planRecord := map[string]any{"strategy": "bounded ReAct / Plan-Execute", "max_iterations": value.Runtime.MaxIterations, "max_tool_calls": value.Runtime.MaxToolCalls, "deadline_at": value.Runtime.DeadlineAt, "completion_criteria": "at least one MCP evidence reference and a structured final decision"}
+		if plannerSessionContext != nil {
+			planRecord["session_context"] = map[string]any{"source": "durable_session", "recent_message_count": len(plannerSessionContext.RecentMessages), "selected_resource_count": len(plannerSessionContext.SelectedResources), "summary_present": plannerSessionContext.Summary != ""}
+		}
+		if err := o.appendTrace(ctx, value, trace.PlanCreated, planRecord); err != nil {
 			return value, err
 		}
 	}
@@ -61,6 +70,7 @@ func (o *Orchestrator) runGeneral(ctx context.Context, value task.Task, emit Eve
 		decision, err := o.Planner.Decide(ctx, llm.DecisionRequest{
 			Objective:       value.Objective,
 			OriginalRequest: value.OriginalRequest,
+			SessionContext:  plannerSessionContext,
 			Tools:           capabilities,
 			Observations:    plannerObservations(value.Runtime.Observations),
 			Iteration:       value.Runtime.Iterations,

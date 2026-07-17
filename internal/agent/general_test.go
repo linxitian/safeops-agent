@@ -56,6 +56,60 @@ func TestGeneralRuntimeReentersPlannerWithToolResult(t *testing.T) {
 	}
 }
 
+func TestGeneralRuntimeProvidesDurableSessionContextToPlanner(t *testing.T) {
+	ctx := context.Background()
+	store, err := storage.NewFileStore(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	traceWriter, err := trace.NewWriter(store.Root() + "/traces")
+	if err != nil {
+		t.Fatal(err)
+	}
+	now := time.Now().UTC()
+	s := session.Session{
+		ID:   "ses_followup",
+		Name: "followup",
+		Messages: []session.Message{
+			{ID: "msg_1", Role: session.RoleUser, Content: "列出 Lab 大文件", TaskID: "task_prior", CreatedAt: now},
+			{ID: "msg_2", Role: session.RoleAssistant, Content: "已找到三个文件。", TaskID: "task_prior", CreatedAt: now},
+		},
+		SelectedResources: []string{"/var/lib/safeops/lab/demo-3.log", "/var/lib/safeops/lab/demo-2.log", "/var/lib/safeops/lab/demo-1.log"},
+		CreatedAt:         now,
+		UpdatedAt:         now,
+	}
+	if err := store.SaveSession(ctx, s); err != nil {
+		t.Fatal(err)
+	}
+	planner := &sequencePlanner{decisions: []llm.Decision{
+		{Kind: llm.DecisionTool, DecisionSummary: "读取已选文件范围", ServerID: "system", Tool: "system.get_load_average", Arguments: map[string]any{}},
+		{Kind: llm.DecisionFinal, DecisionSummary: "基于证据完成", FinalAnswer: "已完成有界调查。"},
+	}}
+	tools := fakeGeneralTools{}
+	orchestrator := &Orchestrator{Store: store, Registry: tools, Capabilities: tools, Planner: planner, Safety: fakeSafety{}, Trace: traceWriter, ToolTimeout: time.Second}
+	if _, err := orchestrator.Prepare(ctx, "task_followup", s.ID, "哪些建议处理？"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := orchestrator.Run(ctx, "task_followup", s.ID, "哪些建议处理？", nil); err != nil {
+		t.Fatal(err)
+	}
+	if len(planner.requests) == 0 || planner.requests[0].SessionContext == nil {
+		t.Fatal("planner did not receive durable session context")
+	}
+	context := planner.requests[0].SessionContext
+	if len(context.RecentMessages) != 2 || context.RecentMessages[0].Content != "列出 Lab 大文件" {
+		t.Fatalf("unexpected recent context: %+v", context.RecentMessages)
+	}
+	if len(context.SelectedResources) != 3 || context.SelectedResources[2] != "/var/lib/safeops/lab/demo-1.log" {
+		t.Fatalf("unexpected selected resources: %+v", context.SelectedResources)
+	}
+	for _, message := range context.RecentMessages {
+		if message.Content == "哪些建议处理？" {
+			t.Fatal("current request was duplicated into historical context")
+		}
+	}
+}
+
 func TestGeneralRuntimeReplansWhenPlannerFinalsTooEarly(t *testing.T) {
 	ctx := context.Background()
 	store, err := storage.NewFileStore(t.TempDir())
@@ -201,9 +255,11 @@ type sequencePlanner struct {
 	decisions      []llm.Decision
 	index          int
 	sawObservation bool
+	requests       []llm.DecisionRequest
 }
 
 func (p *sequencePlanner) Decide(_ context.Context, request llm.DecisionRequest) (llm.Decision, error) {
+	p.requests = append(p.requests, request)
 	if p.index > 0 && len(request.Observations) > 0 {
 		p.sawObservation = true
 	}

@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"flag"
+	"fmt"
 	"log"
 	"net"
 	"net/http"
@@ -26,7 +27,23 @@ func main() {
 	configPath := flag.String("config", "/etc/safeops/executor.yaml", "executor allowlist config")
 	secretPath := flag.String("secret", "/etc/safeops/privexec.hmac", "shared HMAC secret file")
 	mode := flag.String("mode", "dry-run", "execution mode: dry-run or lab")
+	readProcessExecutable := flag.Int(platform.ProcessExecutableHelperFlag, 0, "internal use only")
 	flag.Parse()
+	helperRequested := false
+	flag.Visit(func(value *flag.Flag) {
+		if value.Name == platform.ProcessExecutableHelperFlag {
+			helperRequested = true
+		}
+	})
+	if helperRequested {
+		executable, err := platform.ReadProcessExecutable(context.Background(), *readProcessExecutable)
+		if err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			os.Exit(1)
+		}
+		fmt.Fprint(os.Stdout, executable)
+		return
+	}
 	if *mode != "dry-run" && *mode != "lab" {
 		log.Fatal("execution mode must be dry-run or lab")
 	}
@@ -50,7 +67,19 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
-	targets := executor.LinuxTargets{Linux: platform.NewLinux(), Commands: platform.NewCommandPlatform(), AllowedFileRoots: config.AllowedFileRoots}
+	self, err := os.Executable()
+	if err != nil {
+		log.Fatal(err)
+	}
+	self, err = filepath.EvalSymlinks(self)
+	if err != nil {
+		log.Fatal(err)
+	}
+	processExecutableFallback, err := platform.NewProcessExecutableChildFallback(self)
+	if err != nil {
+		log.Fatal(err)
+	}
+	targets := executor.LinuxTargets{Linux: platform.NewLinux(platform.WithProcessExecutableFallback(processExecutableFallback)), Commands: platform.NewCommandPlatform(), AllowedFileRoots: config.AllowedFileRoots}
 	validator := executor.Validator{Secret: secret, Pipeline: guard.NewSafetyPipeline(catalog), Nonces: nonces, Approvals: approvals, Scope: config.Scope(), Targets: targets}
 	dry := executor.DryRunHandler{}
 	handlers := map[string]executor.Handler{"service.restart": dry, "service.start": dry, "service.stop": dry, "process.terminate": dry, "file.quarantine": dry, "file.restore_quarantine": dry, "file.create": dry, "file.delete": dry}

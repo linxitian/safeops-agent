@@ -41,8 +41,14 @@ type ProcessIdentity struct {
 	Executable    string
 }
 
+type ProcessExecutableFallback func(context.Context, int, int) (string, error)
+
 func (p *LinuxPlatform) ProcessIdentity(ctx context.Context, pid int) (ProcessIdentity, error) {
 	info, err := p.Process(ctx, pid)
+	if err != nil {
+		return ProcessIdentity{}, err
+	}
+	executable, err := resolveProcessExecutable(ctx, filepath.Join(p.procRoot, strconv.Itoa(pid), "exe"), pid, info.UID, os.Readlink, p.processExecutableFallback)
 	if err != nil {
 		return ProcessIdentity{}, err
 	}
@@ -51,7 +57,35 @@ func (p *LinuxPlatform) ProcessIdentity(ctx context.Context, pid int) (ProcessId
 		return ProcessIdentity{}, err
 	}
 	sum := sha256.Sum256(raw)
-	return ProcessIdentity{PID: pid, StartTicks: info.StartTicks, CommandDigest: hex.EncodeToString(sum[:]), UID: info.UID, Executable: info.Executable}, nil
+	return ProcessIdentity{PID: pid, StartTicks: info.StartTicks, CommandDigest: hex.EncodeToString(sum[:]), UID: info.UID, Executable: executable}, nil
+}
+
+func resolveProcessExecutable(ctx context.Context, path string, pid, uid int, readlink func(string) (string, error), fallback ProcessExecutableFallback) (string, error) {
+	if err := ctx.Err(); err != nil {
+		return "", err
+	}
+	executable, err := readlink(path)
+	if err == nil {
+		return validateProcessExecutable(executable)
+	}
+	if !errors.Is(err, os.ErrPermission) || fallback == nil {
+		return "", fmt.Errorf("read process executable: %w", err)
+	}
+	executable, err = fallback(ctx, pid, uid)
+	if err != nil {
+		return "", fmt.Errorf("read process executable as target uid: %w", err)
+	}
+	return validateProcessExecutable(executable)
+}
+
+func validateProcessExecutable(executable string) (string, error) {
+	if executable == "" {
+		return "", errors.New("process executable is empty")
+	}
+	if len(executable) > 4096 || strings.ContainsRune(executable, '\x00') {
+		return "", errors.New("process executable is invalid")
+	}
+	return executable, nil
 }
 
 func (p *LinuxPlatform) Processes(ctx context.Context, query ProcessQuery) ([]ProcessInfo, error) {

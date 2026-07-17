@@ -77,6 +77,9 @@ func (o *Orchestrator) Prepare(ctx context.Context, taskID, sessionID, request s
 	now := time.Now().UTC()
 	t := task.Task{ID: taskID, SessionID: sessionID, Objective: request, OriginalRequest: request, State: task.New, CreatedAt: now, UpdatedAt: now}
 	if _, err := o.Store.UpdateSession(ctx, sessionID, func(s *session.Session) error {
+		if len(s.Messages) == 0 && isDefaultSessionName(s.Name) {
+			s.Name = sessionTitleFromRequest(request)
+		}
 		s.Messages = append(s.Messages, session.Message{ID: id.New("msg"), Role: session.RoleUser, Content: request, TaskID: taskID, CreatedAt: now})
 		s.UpdatedAt = now
 		return nil
@@ -331,7 +334,7 @@ func (o *Orchestrator) RecoverIncomplete(ctx context.Context, emit EventSink) []
 				}
 			}
 		}
-		taskCtx, cancel := context.WithTimeout(ctx, 2*time.Minute)
+		taskCtx, cancel := context.WithTimeout(ctx, 5*time.Minute)
 		_, runErr := o.Run(taskCtx, value.ID, value.SessionID, value.OriginalRequest, emit)
 		cancel()
 		if runErr != nil {
@@ -373,6 +376,27 @@ func parseMetricIntent(request string) (metricIntent, error) {
 		return metricIntent{}, errors.New("当前已实现的纵切片仅支持 CPU/内存只读查询")
 	}
 	return intent, nil
+}
+
+func isDefaultSessionName(name string) bool {
+	switch strings.TrimSpace(name) {
+	case "", "新会话", "新对话", "系统感知会话":
+		return true
+	default:
+		return false
+	}
+}
+
+func sessionTitleFromRequest(request string) string {
+	title := strings.Join(strings.Fields(strings.TrimSpace(request)), " ")
+	runes := []rune(title)
+	if len(runes) > 36 {
+		title = string(runes[:36])
+	}
+	if title == "" {
+		return "新会话"
+	}
+	return title
 }
 
 // ClassifyMetricIntent exposes the production deterministic metric classifier

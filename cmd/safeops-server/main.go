@@ -44,6 +44,11 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
+	runtimeLog, err := openRuntimeLog(*dataDir)
+	if err != nil {
+		log.Fatal(err)
+	}
+	defer runtimeLog.Close()
 	cfg, err := registry.Load(*registryConfig)
 	if err != nil {
 		log.Fatal(err)
@@ -61,6 +66,12 @@ func main() {
 		log.Fatal(err)
 	}
 	safety := guard.NewSafetyPipeline(catalog)
+	execConfig, err := executor.LoadConfig(*executorConfig)
+	if err != nil {
+		log.Fatal(err)
+	}
+	targets := executor.NewMutableTargets(platform.NewLinux(), platform.NewCommandPlatform(), execConfig.AllowedFileRoots)
+	allowlistManager := executor.NewConfigManager(*executorConfig, execConfig, targets)
 	planner := llm.NewRuntimeProvider()
 	llmSettings := llm.NewSettingsStore(filepath.Join(*dataDir, "state", "llm_config.json"))
 	if stored, loadErr := llmSettings.Load(); loadErr == nil {
@@ -96,11 +107,6 @@ func main() {
 		if err != nil {
 			log.Fatal(err)
 		}
-		execConfig, err := executor.LoadConfig(*executorConfig)
-		if err != nil {
-			log.Fatal(err)
-		}
-		targets := executor.LinuxTargets{Linux: platform.NewLinux(), Commands: platform.NewCommandPlatform(), AllowedFileRoots: execConfig.AllowedFileRoots}
 		orchestrator.Actions = &agent.ActionPreparer{Store: store, Approvals: approvalStore, Safety: safety, Trace: traceWriter, Secret: secret}
 		orchestrator.FileTargets = targets
 		orchestrator.ActionTargets = targets
@@ -111,7 +117,7 @@ func main() {
 		log.Fatal(err)
 	}
 	resumer := agent.ApprovalResumer{Store: store, Executor: executorClient, Trace: traceWriter, Continuation: orchestrator}
-	apiOptions := []api.Option{api.WithApprovals(approvalStore, resumer), api.WithLLM(planner, llmSettings)}
+	apiOptions := []api.Option{api.WithApprovals(approvalStore, resumer), api.WithLLM(planner, llmSettings), api.WithRuntimeLog(runtimeLog), api.WithExecutorAllowlist(allowlistManager)}
 	if *webRoot != "" {
 		index := filepath.Join(*webRoot, "index.html")
 		info, err := os.Stat(index)
@@ -139,6 +145,14 @@ func main() {
 	if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 		log.Fatal(err)
 	}
+}
+
+func openRuntimeLog(dataDir string) (*os.File, error) {
+	dir := filepath.Join(dataDir, "logs")
+	if err := os.MkdirAll(dir, 0o750); err != nil {
+		return nil, err
+	}
+	return os.OpenFile(filepath.Join(dir, "runtime.jsonl"), os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o600)
 }
 
 func resumeResolvedApprovals(ctx context.Context, store *approval.Store, resumer agent.ApprovalResumer) {

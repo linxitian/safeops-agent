@@ -63,6 +63,7 @@ const baseApproval = {
 
 class MockEventSource {
   static instances: MockEventSource[] = []
+  static onEmit: ((payload: unknown) => void) | null = null
   listeners: Record<string, Listener[]> = {}
   onerror: ((event: Event) => void) | null = null
   closed = false
@@ -83,6 +84,7 @@ class MockEventSource {
   }
 
   emit(type: string, payload: unknown) {
+    MockEventSource.onEmit?.(payload)
     for (const listener of this.listeners[type] || []) {
       listener(new MessageEvent(type, { data: JSON.stringify(payload) }))
     }
@@ -97,23 +99,30 @@ function jsonResponse(body: unknown, status = 200) {
   } as Response
 }
 
-function setupAPI(options: { waitingApproval?: boolean } = {}) {
+function setupAPI(options: { waitingApproval?: boolean; completedReply?: string; messageFailure?: boolean; sessionName?: string } = {}) {
   MockEventSource.instances = []
+  MockEventSource.onEmit = null
   let task = options.waitingApproval ? waitingTask : completedTask
   let approval = baseApproval
   const session = {
     session_id: 'session-1',
-    name: '测试会话',
+    name: options.sessionName || '测试会话',
     archived: false,
     updated_at: '2026-07-16T01:02:03Z',
     messages: options.waitingApproval ? [{ message_id: 'message-1', role: 'assistant', content: '需要审批', task_id: 'task-1', created_at: '2026-07-16T01:02:03Z' }] : [],
+  }
+  MockEventSource.onEmit = payload => {
+    const event = payload as { task_id?: string; state?: string }
+    if (event.task_id !== 'task-new' || event.state !== 'COMPLETED') return
+    task = { ...completedTask, task_id: 'task-new', state: 'COMPLETED' }
+    session.messages.push({ message_id: 'message-reply', role: 'assistant', content: options.completedReply || '任务已经完成。', task_id: 'task-new', created_at: '2026-07-16T01:03:00Z' })
   }
   const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
     const url = String(input)
     if (url.startsWith('/api/v1/sessions?')) return jsonResponse({ sessions: [session] })
     if (url === '/api/v1/sessions/session-1') return jsonResponse(session)
     if (url === '/api/v1/tasks/task-1') return jsonResponse(task)
-    if (url === '/api/v1/tasks/task-new') return jsonResponse({ ...completedTask, task_id: 'task-new', state: 'INVESTIGATING' })
+    if (url === '/api/v1/tasks/task-new') return jsonResponse(task.task_id === 'task-new' ? task : { ...completedTask, task_id: 'task-new', state: 'INVESTIGATING' })
     if (url === '/api/v1/tasks/task-1/trace' || url === '/api/v1/tasks/task-new/trace') return jsonResponse(baseTrace)
     if (url === '/api/v1/approvals/approval-1') return jsonResponse(approval)
     if (url === '/api/v1/overview') return jsonResponse(baseOverview)
@@ -121,7 +130,10 @@ function setupAPI(options: { waitingApproval?: boolean } = {}) {
     if (url === '/api/v1/approvals') return jsonResponse({ approvals: options.waitingApproval ? [approval] : [] })
     if (url.startsWith('/api/v1/tasks?')) return jsonResponse({ tasks: [task] })
     if (url === '/api/v1/sessions/session-1/messages' && init?.method === 'POST') {
-      task = { ...completedTask, task_id: 'task-new', state: 'INVESTIGATING', objective: JSON.parse(String(init.body)).content }
+      if (options.messageFailure) return jsonResponse({ error: '消息未被接受' }, 500)
+      const content = JSON.parse(String(init.body)).content
+      task = { ...completedTask, task_id: 'task-new', state: 'INVESTIGATING', objective: content }
+      session.messages.push({ message_id: 'message-request', role: 'user', content, task_id: 'task-new', created_at: '2026-07-16T01:02:30Z' })
       return jsonResponse({ task_id: 'task-new', session_id: 'session-1', state: 'NEW', events_url: '/api/v1/tasks/task-new/events' }, 202)
     }
     if (url === '/api/v1/approvals/approval-1/resolve' && init?.method === 'POST') {
@@ -136,8 +148,6 @@ function setupAPI(options: { waitingApproval?: boolean } = {}) {
   })
   vi.stubGlobal('fetch', fetchMock)
   vi.stubGlobal('EventSource', MockEventSource)
-  vi.spyOn(window, 'confirm').mockReturnValue(true)
-  vi.spyOn(window, 'prompt').mockReturnValue(null)
   return fetchMock
 }
 
@@ -155,10 +165,11 @@ describe('SafeOps UI interactions', () => {
   it('submits a user request and follows the returned task event stream', async () => {
     const fetchMock = setupAPI()
     const user = userEvent.setup()
-    render(<App />)
+    const { container } = render(<App />)
 
     await screen.findByRole('heading', { name: '测试会话' })
-    const input = screen.getByLabelText('描述希望调查的系统问题')
+    const input = screen.getByLabelText('描述希望调查的系统问题') as HTMLTextAreaElement
+    expect(input.value).toBe('')
     await user.clear(input)
     await user.type(input, '查看服务状态')
     await user.click(screen.getByRole('button', { name: '发送' }))
@@ -169,9 +180,67 @@ describe('SafeOps UI interactions', () => {
       method: 'POST',
       body: JSON.stringify({ content: '查看服务状态' }),
     }))
+    expect(input.value).toBe('')
+    expect(container.querySelectorAll('.messages .message.user')).toHaveLength(1)
+    expect(container.querySelector('.messages .message.user .markdown')?.textContent).toBe('查看服务状态')
+    expect(screen.getByText('思考中')).toBeTruthy()
 
     MockEventSource.instances[0].emit('task.progress', { sequence: 1, type: 'task.progress', task_id: 'task-new', state: 'COMPLETED', message: '任务完成', timestamp: '2026-07-16T01:03:00Z' })
     await screen.findByText('任务完成')
+    await waitFor(() => expect(screen.queryByText('思考中')).toBeNull())
+  })
+
+  it('reveals a newly completed LLM reply with a typewriter stream', async () => {
+    const reply = '这是后端已经持久化的完整回答，现在通过前端逐字显示。'
+    setupAPI({ completedReply: reply })
+    const user = userEvent.setup()
+    const { container } = render(<App />)
+
+    await screen.findByRole('heading', { name: '测试会话' })
+    await user.type(screen.getByLabelText('描述希望调查的系统问题'), '解释当前状态')
+    await user.click(screen.getByRole('button', { name: '发送' }))
+    await waitFor(() => expect(MockEventSource.instances).toHaveLength(1))
+    expect(container.querySelectorAll('.messages .message.user')).toHaveLength(1)
+    expect(container.querySelector('.messages .message.user .markdown')?.textContent).toBe('解释当前状态')
+    expect(screen.getByText('思考中')).toBeTruthy()
+
+    MockEventSource.instances[0].emit('task.progress', { sequence: 1, type: 'task.progress', task_id: 'task-new', state: 'COMPLETED', message: '任务完成', timestamp: '2026-07-16T01:03:00Z' })
+
+    await waitFor(() => expect(container.querySelector('.typewriter-cursor')).not.toBeNull())
+    expect(screen.queryByText('思考中')).toBeNull()
+    const partial = container.querySelector('.streaming-markdown')?.textContent || ''
+    expect(partial.length).toBeLessThan(reply.length)
+    await waitFor(() => expect(container.querySelector('.typewriter-cursor')).toBeNull(), { timeout: 3000 })
+    expect(container.querySelector('.message.assistant .markdown')?.textContent).toBe(reply)
+  })
+
+  it('rolls back the optimistic question when message creation fails', async () => {
+    setupAPI({ messageFailure: true })
+    const user = userEvent.setup()
+    const { container } = render(<App />)
+
+    await screen.findByRole('heading', { name: '测试会话' })
+    const input = screen.getByLabelText('描述希望调查的系统问题') as HTMLTextAreaElement
+    await user.type(input, '这条消息应该回滚')
+    await user.click(screen.getByRole('button', { name: '发送' }))
+
+    await screen.findByText('消息未被接受')
+    expect(input.value).toBe('这条消息应该回滚')
+    expect(container.querySelector('.messages .message.user')).toBeNull()
+    expect(screen.queryByText('思考中')).toBeNull()
+    expect(MockEventSource.instances).toHaveLength(0)
+  })
+
+  it('uses the first question as the title for an unnamed session', async () => {
+    setupAPI({ sessionName: '新会话' })
+    const user = userEvent.setup()
+    render(<App />)
+
+    await screen.findByRole('heading', { name: '新会话' })
+    await user.type(screen.getByLabelText('描述希望调查的系统问题'), '查看服务状态')
+    await user.click(screen.getByRole('button', { name: '发送' }))
+
+    await screen.findByRole('heading', { name: '查看服务状态' })
   })
 
   it('resolves a pending approval through the exact approval API', async () => {
@@ -181,12 +250,14 @@ describe('SafeOps UI interactions', () => {
 
     await screen.findByRole('heading', { name: 'file.quarantine' })
     await user.click(screen.getByRole('button', { name: '批准精确动作' }))
+    await screen.findByRole('dialog', { name: '批准精确绑定操作' })
+    expect(screen.getByText('确认批准这个精确绑定的操作？审批不能授权其他目标。')).toBeTruthy()
+    await user.click(screen.getByRole('button', { name: '批准' }))
 
     await waitFor(() => expect(fetchMock).toHaveBeenCalledWith('/api/v1/approvals/approval-1/resolve', expect.objectContaining({
       method: 'POST',
       body: JSON.stringify({ decision: 'APPROVE', reason: 'Web 控制台人工批准' }),
     })))
-    expect(window.confirm).toHaveBeenCalledWith('确认批准这个精确绑定的操作？审批不能授权其他目标。')
     await screen.findByText('批准结果已持久化，任务自动恢复')
   })
 

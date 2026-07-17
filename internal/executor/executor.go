@@ -41,7 +41,16 @@ type Executor struct {
 	Now       func() time.Time
 }
 
-var fixedHandlers = map[string]bool{"service.restart": true, "service.start": true, "service.stop": true, "process.terminate": true, "file.quarantine": true, "file.restore_quarantine": true}
+var fixedHandlers = map[string]bool{
+	"service.restart":         true,
+	"service.start":           true,
+	"service.stop":            true,
+	"process.terminate":       true,
+	"file.quarantine":         true,
+	"file.restore_quarantine": true,
+	"file.create":             true,
+	"file.delete":             true,
+}
 
 func (e Executor) Execute(ctx context.Context, envelope contracts.ActionEnvelope) (Result, error) {
 	handler := e.Handlers[envelope.Proposal.Tool]

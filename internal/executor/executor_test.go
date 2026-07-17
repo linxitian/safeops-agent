@@ -80,6 +80,8 @@ func TestExecutorLabQuarantineAndRestoreEndToEnd(t *testing.T) {
 	quarantineHandler := QuarantineHandler{Manager: manager}
 	engine.Handlers["file.quarantine"] = quarantineHandler
 	engine.Handlers["file.restore_quarantine"] = quarantineHandler
+	engine.Handlers["file.delete"] = quarantineHandler
+	engine.Handlers["file.create"] = FileCreateHandler{}
 
 	quarantineSnapshot, err := targets.SnapshotFile(context.Background(), path, path)
 	if err != nil {
@@ -114,6 +116,41 @@ func TestExecutorLabQuarantineAndRestoreEndToEnd(t *testing.T) {
 	}
 	if content, err := os.ReadFile(path); err != nil || string(content) != "safeops controlled data" {
 		t.Fatalf("original file was not restored: %q %v", content, err)
+	}
+
+	createPath := filepath.Join(lab, "created.txt")
+	createSnapshot, err := targets.SnapshotNewFile(context.Background(), createPath, createPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	createEnvelope := fileEnvelope(t, pipeline, createSnapshot, "file.create", map[string]any{"content": "created by safeops"}, "task-create", "nonce-create", now)
+	approveEnvelope(t, approvals, &createEnvelope)
+	created, err := engine.Execute(context.Background(), createEnvelope)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if created.Mode != LabSandbox || !created.Changed || created.Verification == nil || !created.Verification.Verified {
+		t.Fatalf("unexpected create result: %+v", created)
+	}
+	if content, err := os.ReadFile(createPath); err != nil || string(content) != "created by safeops" {
+		t.Fatalf("created file content mismatch: %q %v", content, err)
+	}
+
+	deleteSnapshot, err := targets.SnapshotFile(context.Background(), createPath, createPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	deleteEnvelope := fileEnvelope(t, pipeline, deleteSnapshot, "file.delete", map[string]any{}, "task-delete", "nonce-delete", now)
+	approveEnvelope(t, approvals, &deleteEnvelope)
+	deleted, err := engine.Execute(context.Background(), deleteEnvelope)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if deleted.Mode != LabSandbox || deleted.ActionID == "" || deleted.Verification == nil || !deleted.Verification.Verified {
+		t.Fatalf("unexpected delete result: %+v", deleted)
+	}
+	if _, err := os.Lstat(createPath); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("delete did not remove active path through quarantine: %v", err)
 	}
 }
 

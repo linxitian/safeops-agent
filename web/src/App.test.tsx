@@ -58,6 +58,17 @@ const servers = {
   }],
 }
 
+const allowlistConfig = {
+  config_path: '/etc/safeops/executor.yaml',
+  managed_roots: ['/var/lib/safeops/lab'],
+  allowed_file_roots: ['/var/lib/safeops/lab', '/var/lib/safeops/quarantine'],
+  quarantine_root: '/var/lib/safeops/quarantine',
+  missing_roots: [],
+  requires_executor_restart: true,
+  write_actions_enabled: true,
+  updated_at: '2026-07-17T01:02:03Z',
+}
+
 type APIOptions = {
   session?: Record<string, unknown>
   approvals?: unknown[] | null
@@ -65,6 +76,7 @@ type APIOptions = {
   servers?: unknown[] | null
   traceEvents?: unknown[] | null
   llmConfig?: Record<string, unknown>
+  allowlistConfig?: Record<string, unknown>
 }
 
 class MockEventSource {
@@ -83,11 +95,17 @@ function jsonResponse(body: unknown, status = 200) {
 }
 
 function mockAPI(options: APIOptions = {}) {
-  const sessionValue = options.session || session
+  let sessionValue = options.session || session
   let llmConfig = options.llmConfig || { configured: false, api_key_configured: false, last_configuration: 'not configured' }
+  let allowlist = options.allowlistConfig || allowlistConfig
   vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
     const url = String(input)
     if (url.startsWith('/api/v1/sessions?')) return jsonResponse({ sessions: [sessionValue] })
+    if (url === '/api/v1/sessions/session-1' && init?.method === 'PATCH') {
+      const body = JSON.parse(String(init.body))
+      sessionValue = { ...sessionValue, ...body, updated_at: '2026-07-17T01:03:00Z' }
+      return jsonResponse(sessionValue)
+    }
     if (url === '/api/v1/sessions/session-1') return jsonResponse(sessionValue)
     if (url === '/api/v1/tasks/task-1') return jsonResponse(task)
     if (url === '/api/v1/tasks/task-1/trace') return jsonResponse({ ...trace, events: options.traceEvents === undefined ? trace.events : options.traceEvents })
@@ -102,14 +120,18 @@ function mockAPI(options: APIOptions = {}) {
       llmConfig = { configured: false, api_key_configured: false, last_configuration: 'not configured' }
       return jsonResponse(llmConfig)
     }
+    if (url === '/api/v1/executor/allowlist' && (!init?.method || init.method === 'GET')) return jsonResponse(allowlist)
+    if (url === '/api/v1/executor/allowlist' && init?.method === 'PUT') {
+      const body = JSON.parse(String(init.body)) as { managed_roots: string[] }
+      allowlist = { ...allowlistConfig, managed_roots: body.managed_roots, allowed_file_roots: [...body.managed_roots, allowlistConfig.quarantine_root] }
+      return jsonResponse(allowlist)
+    }
     if (url === '/api/v1/mcp/servers') return jsonResponse({ servers: options.servers === undefined ? servers.servers : options.servers })
     if (url === '/api/v1/approvals') return jsonResponse({ approvals: options.approvals === undefined ? [] : options.approvals })
     if (url.startsWith('/api/v1/tasks?')) return jsonResponse({ tasks: options.tasks === undefined ? [task] : options.tasks })
     return jsonResponse({ error: `unhandled test route: ${url}` }, 404)
   }))
   vi.stubGlobal('EventSource', MockEventSource)
-  vi.spyOn(window, 'confirm').mockReturnValue(true)
-  vi.spyOn(window, 'prompt').mockReturnValue(null)
 }
 
 describe('SafeOps Chinese operational UI', () => {
@@ -150,6 +172,10 @@ describe('SafeOps Chinese operational UI', () => {
     await screen.findByRole('heading', { name: '可审计推理轨迹' })
     expect(screen.getAllByText('RCA_RESULT')).toHaveLength(2)
     expect(screen.getAllByText('VERIFICATION')).toHaveLength(2)
+
+    await user.click(screen.getByRole('button', { name: '管控路径' }))
+    await screen.findByRole('heading', { name: 'Agent 管控路径' })
+    expect(screen.getAllByText('/var/lib/safeops/lab').length).toBeGreaterThan(0)
   })
 
   it('treats null session messages as an empty durable session', async () => {
@@ -206,6 +232,63 @@ describe('SafeOps Chinese operational UI', () => {
     expect(fetch).toHaveBeenCalledWith('/api/v1/llm/config', expect.objectContaining({
       method: 'PUT',
       body: JSON.stringify({ base_url: 'https://llm.example/v1', api_key: 'secret-key', model: 'ops-model' }),
+    }))
+  })
+
+  it('saves executor allowlist paths from the settings page', async () => {
+    const user = userEvent.setup()
+    render(<App />)
+
+    await screen.findByRole('heading', { name: '测试会话' })
+    await user.click(screen.getByRole('button', { name: '管控路径' }))
+    await screen.findByRole('heading', { name: 'Agent 管控路径' })
+    const textarea = screen.getByLabelText('管控路径')
+    await user.clear(textarea)
+    await user.type(textarea, '/tmp/safeops-lab')
+    await user.click(screen.getByRole('button', { name: '保存路径' }))
+
+    await waitFor(() => expect(screen.getAllByText('/tmp/safeops-lab').length).toBeGreaterThan(0))
+    expect(fetch).toHaveBeenCalledWith('/api/v1/executor/allowlist', expect.objectContaining({
+      method: 'PUT',
+      body: JSON.stringify({ managed_roots: ['/tmp/safeops-lab'] }),
+    }))
+  })
+
+  it('renames a session through the inline dialog instead of browser prompt', async () => {
+    const user = userEvent.setup()
+    render(<App />)
+
+    await screen.findByRole('heading', { name: '测试会话' })
+    await user.click(screen.getByTitle('重命名'))
+    await screen.findByRole('dialog', { name: '修改会话名称' })
+    const nameInput = screen.getByLabelText('会话名称')
+    await user.clear(nameInput)
+    await user.type(nameInput, '新的会话名')
+    await user.click(screen.getByRole('button', { name: '保存' }))
+
+    await screen.findByRole('heading', { name: '新的会话名' })
+    expect(fetch).toHaveBeenCalledWith('/api/v1/sessions/session-1', expect.objectContaining({
+      method: 'PATCH',
+      body: JSON.stringify({ name: '新的会话名' }),
+    }))
+  })
+
+  it('clears LLM provider settings through the inline confirmation dialog', async () => {
+    mockAPI({ llmConfig: { configured: true, base_url: 'https://llm.example/v1', model: 'ops-model', api_key_configured: true, source: 'web' } })
+    const user = userEvent.setup()
+    render(<App />)
+
+    await screen.findByRole('heading', { name: '测试会话' })
+    await user.click(screen.getByRole('button', { name: 'LLM 配置' }))
+    await screen.findByRole('heading', { name: 'LLM Provider 配置' })
+    await user.click(screen.getByRole('button', { name: '清除配置' }))
+    await screen.findByRole('dialog', { name: '清除 LLM 配置' })
+    expect(screen.getByText('确认清除 Web 保存的 LLM 配置？API key 会从 SafeOps 数据目录删除。')).toBeTruthy()
+    await user.click(screen.getByRole('button', { name: '确认清除' }))
+
+    await screen.findByText('未配置')
+    expect(fetch).toHaveBeenCalledWith('/api/v1/llm/config', expect.objectContaining({
+      method: 'DELETE',
     }))
   })
 

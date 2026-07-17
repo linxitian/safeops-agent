@@ -13,6 +13,9 @@ type TargetSnapshot struct {
 	Type          string `json:"type"`
 	ID            string `json:"id"`
 	CanonicalPath string `json:"canonical_path,omitempty"`
+	ExpectAbsent  bool   `json:"expect_absent,omitempty"`
+	ParentPath    string `json:"parent_path,omitempty"`
+	ParentInode   uint64 `json:"parent_inode,omitempty"`
 	Size          int64  `json:"size,omitempty"`
 	MTimeUnixNano int64  `json:"mtime_unix_nano,omitempty"`
 	Mode          uint32 `json:"mode,omitempty"`

@@ -53,7 +53,7 @@ func main() {
 	targets := executor.LinuxTargets{Linux: platform.NewLinux(), Commands: platform.NewCommandPlatform(), AllowedFileRoots: config.AllowedFileRoots}
 	validator := executor.Validator{Secret: secret, Pipeline: guard.NewSafetyPipeline(catalog), Nonces: nonces, Approvals: approvals, Scope: config.Scope(), Targets: targets}
 	dry := executor.DryRunHandler{}
-	handlers := map[string]executor.Handler{"service.restart": dry, "service.start": dry, "service.stop": dry, "process.terminate": dry, "file.quarantine": dry, "file.restore_quarantine": dry}
+	handlers := map[string]executor.Handler{"service.restart": dry, "service.start": dry, "service.stop": dry, "process.terminate": dry, "file.quarantine": dry, "file.restore_quarantine": dry, "file.create": dry, "file.delete": dry}
 	executionMode := executor.DryRun
 	if *mode == "lab" {
 		manager, err := rollback.NewQuarantineManager(config.LabFileRoots, config.QuarantineRoot)
@@ -67,6 +67,8 @@ func main() {
 		handlers = map[string]executor.Handler{
 			"file.quarantine":         quarantine,
 			"file.restore_quarantine": quarantine,
+			"file.delete":             quarantine,
+			"file.create":             executor.FileCreateHandler{},
 			"service.restart":         executor.ServiceRestartHandler{Commands: targets.Commands},
 			"process.terminate":       executor.ProcessTerminateHandler{Linux: targets.Linux},
 		}

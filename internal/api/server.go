@@ -17,6 +17,7 @@ import (
 
 	"safeops-agent/internal/agent"
 	"safeops-agent/internal/approval"
+	"safeops-agent/internal/executor"
 	"safeops-agent/internal/id"
 	"safeops-agent/internal/llm"
 	"safeops-agent/internal/registry"
@@ -27,15 +28,17 @@ import (
 )
 
 type Server struct {
-	store           storage.Store
-	registry        *registry.Registry
-	agent           *agent.Orchestrator
-	trace           *trace.Writer
-	approvals       *approval.Store
-	llmProvider     *llm.RuntimeProvider
-	llmSettings     *llm.SettingsStore
-	llmConfigMu     sync.Mutex
-	approvalResumer interface {
+	store             storage.Store
+	registry          *registry.Registry
+	agent             *agent.Orchestrator
+	trace             *trace.Writer
+	approvals         *approval.Store
+	llmProvider       *llm.RuntimeProvider
+	llmSettings       *llm.SettingsStore
+	llmConfigMu       sync.Mutex
+	executorAllowlist *executor.ConfigManager
+	runtimeLog        *runtimeLog
+	approvalResumer   interface {
 		Resume(context.Context, approval.Record) (task.Task, error)
 	}
 	webRoot string
@@ -69,6 +72,20 @@ func WithLLM(provider *llm.RuntimeProvider, settings *llm.SettingsStore) Option 
 	}
 }
 
+func WithRuntimeLog(writer io.Writer) Option {
+	return func(server *Server) {
+		if writer != nil {
+			server.runtimeLog = &runtimeLog{writer: writer}
+		}
+	}
+}
+
+func WithExecutorAllowlist(manager *executor.ConfigManager) Option {
+	return func(server *Server) {
+		server.executorAllowlist = manager
+	}
+}
+
 func New(store storage.Store, registry *registry.Registry, orchestrator *agent.Orchestrator, traceWriter *trace.Writer, options ...Option) *Server {
 	s := &Server{store: store, registry: registry, agent: orchestrator, trace: traceWriter, hub: newEventHub(), mux: http.NewServeMux()}
 	for _, option := range options {
@@ -78,7 +95,7 @@ func New(store storage.Store, registry *registry.Registry, orchestrator *agent.O
 	return s
 }
 
-func (s *Server) Handler() http.Handler { return securityHeaders(s.mux) }
+func (s *Server) Handler() http.Handler { return s.runtimeLog.handler(securityHeaders(s.mux)) }
 
 func (s *Server) routes() {
 	s.mux.HandleFunc("GET /healthz", s.health)
@@ -87,6 +104,8 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("GET /api/v1/llm/config", s.getLLMConfig)
 	s.mux.HandleFunc("PUT /api/v1/llm/config", s.putLLMConfig)
 	s.mux.HandleFunc("DELETE /api/v1/llm/config", s.deleteLLMConfig)
+	s.mux.HandleFunc("GET /api/v1/executor/allowlist", s.getExecutorAllowlist)
+	s.mux.HandleFunc("PUT /api/v1/executor/allowlist", s.putExecutorAllowlist)
 	s.mux.HandleFunc("POST /api/v1/mcp/servers/{serverID}/enable", s.enableMCPServer)
 	s.mux.HandleFunc("POST /api/v1/mcp/servers/{serverID}/disable", s.disableMCPServer)
 	s.mux.HandleFunc("POST /api/v1/mcp/servers/{serverID}/rediscover", s.rediscoverMCPServer)
@@ -173,6 +192,37 @@ func (s *Server) deleteLLMConfig(w http.ResponseWriter, _ *http.Request) {
 	}
 	s.llmProvider.Clear()
 	writeJSON(w, http.StatusOK, s.llmProvider.Status())
+}
+
+func (s *Server) getExecutorAllowlist(w http.ResponseWriter, _ *http.Request) {
+	if s.executorAllowlist == nil {
+		writeError(w, http.StatusServiceUnavailable, errors.New("executor allowlist configuration is not enabled"))
+		return
+	}
+	status := s.executorAllowlist.Status()
+	status.WriteActionsEnabled = s.agent != nil && s.agent.Actions != nil && s.agent.FileTargets != nil
+	writeJSON(w, http.StatusOK, status)
+}
+
+func (s *Server) putExecutorAllowlist(w http.ResponseWriter, r *http.Request) {
+	if s.executorAllowlist == nil {
+		writeError(w, http.StatusServiceUnavailable, errors.New("executor allowlist configuration is not enabled"))
+		return
+	}
+	var input struct {
+		ManagedRoots []string `json:"managed_roots"`
+	}
+	if err := decodeJSON(r, &input); err != nil {
+		writeError(w, http.StatusBadRequest, err)
+		return
+	}
+	status, err := s.executorAllowlist.UpdateManagedRoots(input.ManagedRoots)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err)
+		return
+	}
+	status.WriteActionsEnabled = s.agent != nil && s.agent.Actions != nil && s.agent.FileTargets != nil
+	writeJSON(w, http.StatusOK, status)
 }
 
 func (s *Server) web(w http.ResponseWriter, r *http.Request) {
@@ -552,7 +602,7 @@ func (s *Server) createMessage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	go func() {
-		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 		defer cancel()
 		_, _ = s.agent.Run(ctx, taskID, sessionID, in.Content, s.hub.publish)
 	}()

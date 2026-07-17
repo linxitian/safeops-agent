@@ -38,6 +38,16 @@ func TestOpenAICompatibleDecisionContract(t *testing.T) {
 	}
 }
 
+func TestOpenAICompatibleUsesExtendedDefaultTimeout(t *testing.T) {
+	provider, err := NewOpenAICompatible(Config{BaseURL: "https://llm.example/v1", APIKey: "key", Model: "model"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if provider.client.Timeout != defaultClientTimeout {
+		t.Fatalf("default provider timeout = %s, want %s", provider.client.Timeout, defaultClientTimeout)
+	}
+}
+
 func TestDecodeStructuredDecisionAcceptsAnswerAlias(t *testing.T) {
 	decision, err := decodeStructuredDecision(`{"kind":"final","decision_summary":"基于证据完成","answer":"已引用 trace://task/1 的 MCP 证据。"}`)
 	if err != nil {

@@ -22,7 +22,7 @@ func (h QuarantineHandler) Execute(ctx context.Context, envelope contracts.Actio
 	var operation rollback.Operation
 	var err error
 	switch envelope.Proposal.Tool {
-	case "file.quarantine":
+	case "file.quarantine", "file.delete":
 		operation, err = h.Manager.Quarantine(ctx, envelope.TaskID, envelope.Nonce, envelope.TargetSnapshot)
 	case "file.restore_quarantine":
 		id, ok := envelope.Proposal.Arguments["quarantine_id"].(string)

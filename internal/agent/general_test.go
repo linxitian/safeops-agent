@@ -198,6 +198,54 @@ func TestGeneralRuntimeFailsClosedWhenPlannerRepeatedlyFinalsWithoutEvidence(t *
 	}
 }
 
+func TestGeneralRuntimeCancelsProviderAtRuntimeDeadlineAndPersistsFailure(t *testing.T) {
+	ctx := context.Background()
+	store, err := storage.NewFileStore(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	traceWriter, err := trace.NewWriter(store.Root() + "/traces")
+	if err != nil {
+		t.Fatal(err)
+	}
+	now := time.Now().UTC()
+	s := session.Session{ID: "ses_deadline", Name: "deadline", CreatedAt: now, UpdatedAt: now}
+	if err := store.SaveSession(ctx, s); err != nil {
+		t.Fatal(err)
+	}
+	orchestrator := &Orchestrator{Store: store, Registry: fakeGeneralTools{}, Capabilities: fakeGeneralTools{}, Planner: blockingPlanner{}, Safety: fakeSafety{}, Trace: traceWriter}
+	prepared, err := orchestrator.Prepare(ctx, "task_deadline", s.ID, "检查 Lab 大文件")
+	if err != nil {
+		t.Fatal(err)
+	}
+	prepared.Runtime.DeadlineAt = time.Now().UTC().Add(100 * time.Millisecond)
+	if err := store.SaveTask(ctx, prepared); err != nil {
+		t.Fatal(err)
+	}
+	started := time.Now()
+	result, err := orchestrator.Run(ctx, prepared.ID, s.ID, prepared.OriginalRequest, nil)
+	if !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("blocking provider error = %v, want context deadline exceeded", err)
+	}
+	if time.Since(started) > time.Second {
+		t.Fatalf("provider was not bounded by the runtime deadline: %s", time.Since(started))
+	}
+	if result.State != task.Failed || result.WorkerLease.Token != "" {
+		t.Fatalf("returned task did not persist terminal state and release its lease: %+v", result)
+	}
+	persisted, err := store.GetTask(ctx, prepared.ID)
+	if err != nil || persisted.State != task.Failed || !strings.Contains(persisted.FailureReason, context.DeadlineExceeded.Error()) {
+		t.Fatalf("durable task is inconsistent with failure: %+v err=%v", persisted, err)
+	}
+	events, err := traceWriter.Read(prepared.ID)
+	if err != nil || len(events) == 0 || events[len(events)-1].Type != trace.TaskFailed {
+		t.Fatalf("terminal trace is inconsistent: events=%+v err=%v", events, err)
+	}
+	if err := traceWriter.VerifyIntegrity(prepared.ID); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestGeneralRuntimeRejectsUnavailableTool(t *testing.T) {
 	ctx := context.Background()
 	store, _ := storage.NewFileStore(t.TempDir())
@@ -256,6 +304,13 @@ type sequencePlanner struct {
 	index          int
 	sawObservation bool
 	requests       []llm.DecisionRequest
+}
+
+type blockingPlanner struct{}
+
+func (blockingPlanner) Decide(ctx context.Context, _ llm.DecisionRequest) (llm.Decision, error) {
+	<-ctx.Done()
+	return llm.Decision{}, ctx.Err()
 }
 
 func (p *sequencePlanner) Decide(_ context.Context, request llm.DecisionRequest) (llm.Decision, error) {

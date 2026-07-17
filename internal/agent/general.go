@@ -67,7 +67,8 @@ func (o *Orchestrator) runGeneral(ctx context.Context, value task.Task, emit Eve
 		if err := o.Store.SaveTask(ctx, value); err != nil {
 			return value, err
 		}
-		decision, err := o.Planner.Decide(ctx, llm.DecisionRequest{
+		decisionCtx, cancelDecision := context.WithDeadline(ctx, value.Runtime.DeadlineAt)
+		decision, err := o.Planner.Decide(decisionCtx, llm.DecisionRequest{
 			Objective:       value.Objective,
 			OriginalRequest: value.OriginalRequest,
 			SessionContext:  plannerSessionContext,
@@ -76,6 +77,7 @@ func (o *Orchestrator) runGeneral(ctx context.Context, value task.Task, emit Eve
 			Iteration:       value.Runtime.Iterations,
 			ToolCalls:       value.Runtime.ToolCalls,
 		})
+		cancelDecision()
 		if err != nil {
 			return value, err
 		}

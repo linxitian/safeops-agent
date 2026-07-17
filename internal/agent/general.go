@@ -69,8 +69,20 @@ func (o *Orchestrator) runGeneral(ctx context.Context, value task.Task, emit Eve
 		if err != nil {
 			return value, err
 		}
-		if err := o.appendTrace(ctx, value, trace.DecisionRecorded, map[string]any{"objective": value.Objective, "decision_kind": decision.Kind, "decision_summary": decision.DecisionSummary, "selected_server": decision.ServerID, "selected_tool": decision.Tool, "expected_observation": decision.ExpectedObservation}); err != nil {
+		originalDecision := decision
+		replannedEarlyFinal := false
+		decision, replannedEarlyFinal = replanFinalWithoutEvidence(decision, value)
+		decisionRecord := map[string]any{"objective": value.Objective, "decision_kind": decision.Kind, "decision_summary": decision.DecisionSummary, "selected_server": decision.ServerID, "selected_tool": decision.Tool, "expected_observation": decision.ExpectedObservation}
+		if replannedEarlyFinal {
+			decisionRecord["local_guardrail"] = "replanned_final_without_evidence"
+			decisionRecord["planner_original_kind"] = originalDecision.Kind
+			decisionRecord["planner_original_summary"] = originalDecision.DecisionSummary
+		}
+		if err := o.appendTrace(ctx, value, trace.DecisionRecorded, decisionRecord); err != nil {
 			return value, err
+		}
+		if replannedEarlyFinal {
+			emitEvent(emit, value, "模型过早给出结论，正在要求重新规划相关 MCP 取证")
 		}
 
 		switch decision.Kind {
@@ -191,6 +203,16 @@ func (o *Orchestrator) runGeneral(ctx context.Context, value task.Task, emit Eve
 			}
 		}
 	}
+}
+
+func replanFinalWithoutEvidence(decision llm.Decision, value task.Task) (llm.Decision, bool) {
+	if decision.Kind != llm.DecisionFinal || (len(value.Runtime.Observations) > 0 && len(value.EvidenceRefs) > 0) {
+		return decision, false
+	}
+	return llm.Decision{
+		Kind:            llm.DecisionReplan,
+		DecisionSummary: "模型在缺少 MCP 证据时尝试完成；必须根据用户目标重新规划并选择相关的已发现只读 MCP 工具",
+	}, true
 }
 
 func (o *Orchestrator) completeGeneral(ctx context.Context, value task.Task, answer string, emit EventSink) (task.Task, error) {

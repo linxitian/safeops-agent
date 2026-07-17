@@ -61,19 +61,28 @@ func main() {
 		log.Fatal(err)
 	}
 	safety := guard.NewSafetyPipeline(catalog)
-	var planner llm.Provider
-	llmConfig, err := llm.ConfigFromEnv()
-	switch {
-	case errors.Is(err, llm.ErrNotConfigured):
-		log.Print("OpenAI-compatible provider is not configured; deterministic CPU/memory slice remains available")
-	case err != nil:
-		log.Fatal(err)
-	default:
-		planner, err = llm.NewOpenAICompatible(llmConfig)
-		if err != nil {
+	planner := llm.NewRuntimeProvider()
+	llmSettings := llm.NewSettingsStore(filepath.Join(*dataDir, "state", "llm_config.json"))
+	if stored, loadErr := llmSettings.Load(); loadErr == nil {
+		if err := planner.Configure(stored.Config(), "web", stored.UpdatedAt); err != nil {
 			log.Fatal(err)
 		}
-		log.Printf("OpenAI-compatible provider enabled for model %s", llmConfig.Model)
+		log.Printf("OpenAI-compatible provider enabled from Web configuration for model %s", stored.Model)
+	} else if !errors.Is(loadErr, llm.ErrNotConfigured) {
+		log.Fatal(loadErr)
+	} else {
+		llmConfig, err := llm.ConfigFromEnv()
+		switch {
+		case errors.Is(err, llm.ErrNotConfigured):
+			log.Print("OpenAI-compatible provider is not configured; deterministic CPU/memory slice remains available")
+		case err != nil:
+			log.Fatal(err)
+		default:
+			if err := planner.Configure(llmConfig, "env", time.Now().UTC()); err != nil {
+				log.Fatal(err)
+			}
+			log.Printf("OpenAI-compatible provider enabled from environment for model %s", llmConfig.Model)
+		}
 	}
 	approvalStore, err := approval.NewStore(*dataDir + "/approvals")
 	if err != nil {
@@ -102,7 +111,7 @@ func main() {
 		log.Fatal(err)
 	}
 	resumer := agent.ApprovalResumer{Store: store, Executor: executorClient, Trace: traceWriter, Continuation: orchestrator}
-	apiOptions := []api.Option{api.WithApprovals(approvalStore, resumer)}
+	apiOptions := []api.Option{api.WithApprovals(approvalStore, resumer), api.WithLLM(planner, llmSettings)}
 	if *webRoot != "" {
 		index := filepath.Join(*webRoot, "index.html")
 		info, err := os.Stat(index)

@@ -12,11 +12,13 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"safeops-agent/internal/agent"
 	"safeops-agent/internal/approval"
 	"safeops-agent/internal/id"
+	"safeops-agent/internal/llm"
 	"safeops-agent/internal/registry"
 	"safeops-agent/internal/session"
 	"safeops-agent/internal/storage"
@@ -30,6 +32,9 @@ type Server struct {
 	agent           *agent.Orchestrator
 	trace           *trace.Writer
 	approvals       *approval.Store
+	llmProvider     *llm.RuntimeProvider
+	llmSettings     *llm.SettingsStore
+	llmConfigMu     sync.Mutex
 	approvalResumer interface {
 		Resume(context.Context, approval.Record) (task.Task, error)
 	}
@@ -57,6 +62,13 @@ func WithWebRoot(root string) Option {
 	}
 }
 
+func WithLLM(provider *llm.RuntimeProvider, settings *llm.SettingsStore) Option {
+	return func(server *Server) {
+		server.llmProvider = provider
+		server.llmSettings = settings
+	}
+}
+
 func New(store storage.Store, registry *registry.Registry, orchestrator *agent.Orchestrator, traceWriter *trace.Writer, options ...Option) *Server {
 	s := &Server{store: store, registry: registry, agent: orchestrator, trace: traceWriter, hub: newEventHub(), mux: http.NewServeMux()}
 	for _, option := range options {
@@ -72,6 +84,9 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("GET /healthz", s.health)
 	s.mux.HandleFunc("GET /api/v1/overview", s.overview)
 	s.mux.HandleFunc("GET /api/v1/mcp/servers", s.mcpServers)
+	s.mux.HandleFunc("GET /api/v1/llm/config", s.getLLMConfig)
+	s.mux.HandleFunc("PUT /api/v1/llm/config", s.putLLMConfig)
+	s.mux.HandleFunc("DELETE /api/v1/llm/config", s.deleteLLMConfig)
 	s.mux.HandleFunc("POST /api/v1/mcp/servers/{serverID}/enable", s.enableMCPServer)
 	s.mux.HandleFunc("POST /api/v1/mcp/servers/{serverID}/disable", s.disableMCPServer)
 	s.mux.HandleFunc("POST /api/v1/mcp/servers/{serverID}/rediscover", s.rediscoverMCPServer)
@@ -91,6 +106,73 @@ func (s *Server) routes() {
 	if s.webRoot != "" && s.webRoot != "." {
 		s.mux.HandleFunc("GET /", s.web)
 	}
+}
+
+func (s *Server) getLLMConfig(w http.ResponseWriter, _ *http.Request) {
+	if s.llmProvider == nil {
+		writeError(w, http.StatusServiceUnavailable, errors.New("LLM runtime provider is not configured"))
+		return
+	}
+	writeJSON(w, http.StatusOK, s.llmProvider.Status())
+}
+
+func (s *Server) putLLMConfig(w http.ResponseWriter, r *http.Request) {
+	if s.llmProvider == nil || s.llmSettings == nil {
+		writeError(w, http.StatusServiceUnavailable, errors.New("LLM runtime configuration is not enabled"))
+		return
+	}
+	s.llmConfigMu.Lock()
+	defer s.llmConfigMu.Unlock()
+	var input struct {
+		BaseURL string `json:"base_url"`
+		APIKey  string `json:"api_key"`
+		Model   string `json:"model"`
+	}
+	if err := decodeJSON(r, &input); err != nil {
+		writeError(w, http.StatusBadRequest, err)
+		return
+	}
+	config := llm.Config{BaseURL: strings.TrimSpace(input.BaseURL), APIKey: strings.TrimSpace(input.APIKey), Model: strings.TrimSpace(input.Model)}
+	if config.APIKey == "" {
+		current := s.llmProvider.Config()
+		if strings.TrimSpace(current.APIKey) != "" {
+			config.APIKey = current.APIKey
+		}
+	}
+	if config.BaseURL == "" || config.APIKey == "" || config.Model == "" {
+		writeError(w, http.StatusBadRequest, errors.New("base_url, api_key, and model are required; api_key may be omitted only to keep an existing key"))
+		return
+	}
+	if _, err := llm.NewOpenAICompatible(config); err != nil {
+		writeError(w, http.StatusBadRequest, err)
+		return
+	}
+	now := time.Now().UTC()
+	stored, err := s.llmSettings.Save(config, now)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err)
+		return
+	}
+	if err := s.llmProvider.Configure(stored.Config(), "web", stored.UpdatedAt); err != nil {
+		writeError(w, http.StatusInternalServerError, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, s.llmProvider.Status())
+}
+
+func (s *Server) deleteLLMConfig(w http.ResponseWriter, _ *http.Request) {
+	if s.llmProvider == nil || s.llmSettings == nil {
+		writeError(w, http.StatusServiceUnavailable, errors.New("LLM runtime configuration is not enabled"))
+		return
+	}
+	s.llmConfigMu.Lock()
+	defer s.llmConfigMu.Unlock()
+	if err := s.llmSettings.Delete(); err != nil {
+		writeError(w, http.StatusInternalServerError, err)
+		return
+	}
+	s.llmProvider.Clear()
+	writeJSON(w, http.StatusOK, s.llmProvider.Status())
 }
 
 func (s *Server) web(w http.ResponseWriter, r *http.Request) {

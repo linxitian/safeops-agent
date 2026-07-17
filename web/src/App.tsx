@@ -1,19 +1,20 @@
 import { FormEvent, useCallback, useEffect, useRef, useState } from 'react'
 
-type View = 'console' | 'overview' | 'tools' | 'safety' | 'rca' | 'audit'
+type View = 'console' | 'overview' | 'tools' | 'safety' | 'rca' | 'audit' | 'llm'
 type Message = { message_id: string; role: 'user' | 'assistant' | 'system'; content: string; task_id?: string; created_at: string }
-type Session = { session_id: string; name: string; archived: boolean; messages: Message[]; summary?: string; updated_at: string }
+type Session = { session_id: string; name: string; archived: boolean; messages?: Message[] | null; summary?: string; updated_at: string }
 type TaskStep = { step_id: string; description: string; tool?: string; state: string }
 type TargetRef = { type: string; id: string }
 type TargetSnapshot = { type: string; id: string; pid?: number; start_ticks?: number; executable?: string; service_name?: string; canonical_path?: string }
-type ActionEnvelope = { proposal: { tool: string; target: TargetRef; batch_size: number; reversible: boolean; rollback_strategy?: string }; target_snapshot: TargetSnapshot; risk: { risk_level: string; risk_score: number; risk_factors: string[]; risk_reason: string }; expires_at: string }
-type Task = { task_id: string; session_id?: string; objective?: string; intent_type?: string; state: string; plan: TaskStep[]; current_step: number; findings: string[]; evidence_refs: string[]; pending_approval_id?: string; pending_action?: ActionEnvelope; failure_reason?: string; updated_at?: string }
+type ActionEnvelope = { proposal: { tool: string; target: TargetRef; batch_size: number; reversible: boolean; rollback_strategy?: string }; target_snapshot: TargetSnapshot; risk: { risk_level: string; risk_score: number; risk_factors?: string[] | null; risk_reason: string }; expires_at: string }
+type Task = { task_id: string; session_id?: string; objective?: string; intent_type?: string; state: string; plan?: TaskStep[] | null; current_step: number; findings?: string[] | null; evidence_refs?: string[] | null; pending_approval_id?: string; pending_action?: ActionEnvelope; failure_reason?: string; updated_at?: string }
 type Approval = { approval_id: string; status: string; reason?: string; expires_at: string; binding: { task_id: string; tool: string; risk_level: string; policy_version: string; target_snapshot_digest: string } }
 type TraceEvent = { sequence: number; timestamp: string; type: string; event_hash: string; prev_hash?: string; data?: unknown }
 type RuntimeEvent = { sequence: number; type: string; task_id: string; state: string; message: string; timestamp: string }
 type Overview = { mcp: Record<string, number>; sessions: Record<string, number>; tasks: Record<string, number>; approvals: Record<string, number>; generated_at: string }
 type ToolRecord = { name: string; description: string; schema_hash: string }
-type MCPServer = { manifest: { id: string; display_name: string; version: string; description: string; enabled: boolean; capabilities: string[] }; status: string; error?: string; tools: ToolRecord[]; tool_set_hash?: string; tools_changed: boolean; last_checked: string }
+type MCPServer = { manifest: { id: string; display_name: string; version: string; description: string; enabled: boolean; capabilities?: string[] | null }; status: string; error?: string; tools?: ToolRecord[] | null; tool_set_hash?: string; tools_changed: boolean; last_checked: string }
+type LLMConfig = { configured: boolean; base_url?: string; model?: string; api_key_configured: boolean; source?: string; updated_at?: string; last_configuration?: string }
 
 const api = async <T,>(path: string, init?: RequestInit): Promise<T> => {
   const response = await fetch(path, { ...init, headers: { 'Content-Type': 'application/json', ...init?.headers } })
@@ -32,7 +33,30 @@ const viewTitle: Record<View, [string, string]> = {
   safety: ['安全中心', '风险、审批与执行边界'],
   rca: ['根因分析', '候选原因、证据与缺失项'],
   audit: ['审计追踪', 'Hash-Chained 决策与执行事件'],
+  llm: ['LLM 配置', 'OpenAI-compatible Provider'],
 }
+
+const asArray = <T,>(value?: T[] | null): T[] => Array.isArray(value) ? value : []
+
+const normalizeSession = (value: Session): Session => ({
+  ...value,
+  messages: asArray(value.messages),
+})
+
+const normalizeSessions = (values: Session[]): Session[] => values.map(normalizeSession)
+
+const normalizeTask = (value: Task): Task => ({
+  ...value,
+  plan: asArray(value.plan),
+  findings: asArray(value.findings),
+  evidence_refs: asArray(value.evidence_refs),
+})
+
+const normalizeMCPServer = (value: MCPServer): MCPServer => ({
+  ...value,
+  manifest: { ...value.manifest, capabilities: asArray(value.manifest.capabilities) },
+  tools: asArray(value.tools),
+})
 
 function SafeMarkdown({ content }: { content: string }) {
   return <div className="markdown">{content.split(/\r?\n/).map((line, index) => {
@@ -56,6 +80,8 @@ export default function App() {
   const [mcpServers, setMcpServers] = useState<MCPServer[]>([])
   const [approvals, setApprovals] = useState<Approval[]>([])
   const [tasks, setTasks] = useState<Task[]>([])
+  const [llmConfig, setLLMConfig] = useState<LLMConfig | null>(null)
+  const [llmForm, setLLMForm] = useState({ base_url: '', api_key: '', model: '' })
   const [input, setInput] = useState('查看 CPU 和内存。')
   const [search, setSearch] = useState('')
   const [toolSearch, setToolSearch] = useState('')
@@ -63,13 +89,14 @@ export default function App() {
   const [progress, setProgress] = useState<string[]>([])
   const [busy, setBusy] = useState(false)
   const [resolving, setResolving] = useState(false)
+  const [savingLLM, setSavingLLM] = useState(false)
   const [error, setError] = useState('')
   const streamRef = useRef<EventSource | null>(null)
   const initializedRef = useRef(false)
   const lastSequenceRef = useRef<Record<string, number>>({})
 
   const syncTask = useCallback(async (taskID: string) => {
-    const value = await api<Task>(`/api/v1/tasks/${taskID}`)
+    const value = normalizeTask(await api<Task>(`/api/v1/tasks/${taskID}`))
     setTask(value)
     if (value.state === 'WAITING_APPROVAL' && value.pending_approval_id) {
       setApproval(await api<Approval>(`/api/v1/approvals/${value.pending_approval_id}`))
@@ -77,7 +104,7 @@ export default function App() {
     try {
       const audit = await api<{ integrity: string; events: TraceEvent[] }>(`/api/v1/tasks/${taskID}/trace`)
       setTraceIntegrity(audit.integrity)
-      setTraceEvents(audit.events)
+      setTraceEvents(asArray(audit.events))
     } catch {
       setTraceIntegrity('')
       setTraceEvents([])
@@ -89,15 +116,16 @@ export default function App() {
     const query = new URLSearchParams({ archived: showArchived ? 'true' : 'false' })
     if (search.trim()) query.set('q', search.trim())
     const result = await api<{ sessions: Session[] }>(`/api/v1/sessions?${query}`)
-    setSessions(result.sessions)
-    return result.sessions
+    const values = normalizeSessions(result.sessions || [])
+    setSessions(values)
+    return values
   }, [search, showArchived])
 
   const openSession = useCallback(async (id: string) => {
-    const value = await api<Session>(`/api/v1/sessions/${id}`)
+    const value = normalizeSession(await api<Session>(`/api/v1/sessions/${id}`))
     setActive(value)
     setView('console')
-    const latestTask = [...value.messages].reverse().find(message => message.task_id)?.task_id
+    const latestTask = [...(value.messages || [])].reverse().find(message => message.task_id)?.task_id
     if (latestTask) {
       try { await syncTask(latestTask) } catch { setTask(null); setApproval(null); setTraceEvents([]) }
     } else {
@@ -106,12 +134,12 @@ export default function App() {
   }, [syncTask])
 
   const createSession = useCallback(async () => {
-    const value = await api<Session>('/api/v1/sessions', { method: 'POST', body: JSON.stringify({ name: '系统感知会话' }) })
+    const value = normalizeSession(await api<Session>('/api/v1/sessions', { method: 'POST', body: JSON.stringify({ name: '系统感知会话' }) }))
     setShowArchived(false)
     setSearch('')
     setActive(value); setTask(null); setApproval(null); setTraceEvents([]); setProgress([]); setView('console')
     const result = await api<{ sessions: Session[] }>('/api/v1/sessions?archived=false')
-    setSessions(result.sessions)
+    setSessions(normalizeSessions(result.sessions || []))
   }, [])
 
   const loadWorkspace = useCallback(async () => {
@@ -122,9 +150,16 @@ export default function App() {
       api<{ tasks: Task[] }>('/api/v1/tasks?limit=200'),
     ])
     setOverview(overviewValue)
-    setMcpServers(serverValue.servers)
-    setApprovals(approvalValue.approvals)
-    setTasks(taskValue.tasks)
+    setMcpServers(asArray(serverValue.servers).map(normalizeMCPServer))
+    setApprovals(asArray(approvalValue.approvals))
+    setTasks(asArray(taskValue.tasks).map(normalizeTask))
+  }, [])
+
+  const loadLLMConfig = useCallback(async () => {
+    const value = await api<LLMConfig>('/api/v1/llm/config')
+    setLLMConfig(value)
+    setLLMForm(current => ({ base_url: value.base_url || '', api_key: current.api_key, model: value.model || '' }))
+    return value
   }, [])
 
   useEffect(() => {
@@ -143,6 +178,10 @@ export default function App() {
   useEffect(() => {
     if (view !== 'console') loadWorkspace().catch(err => setError(err instanceof Error ? err.message : String(err)))
   }, [loadWorkspace, view])
+
+  useEffect(() => {
+    if (view === 'llm') loadLLMConfig().catch(err => setError(err instanceof Error ? err.message : String(err)))
+  }, [loadLLMConfig, view])
 
   const followTask = (taskID: string, sessionID: string) => {
     streamRef.current?.close()
@@ -189,7 +228,7 @@ export default function App() {
     setResolving(true); setError('')
     try {
       const result = await api<{ approval: Approval; task: Task }>(`/api/v1/approvals/${approval.approval_id}/resolve`, { method: 'POST', body: JSON.stringify({ decision, reason: `Web 控制台人工${verb}` }) })
-      setTask(result.task); setProgress(items => [...items, `${verb}结果已持久化，任务自动恢复`])
+      setTask(normalizeTask(result.task)); setProgress(items => [...items, `${verb}结果已持久化，任务自动恢复`])
       await syncTask(result.task.task_id)
       if (terminal(result.task.state) && active) {
         setBusy(false); await Promise.all([openSession(active.session_id), refreshSessions()])
@@ -213,7 +252,7 @@ export default function App() {
     const name = window.prompt('输入新的会话名称（1-128 字）', value.name)?.trim()
     if (!name || name === value.name) return
     try {
-      const updated = await api<Session>(`/api/v1/sessions/${value.session_id}`, { method: 'PATCH', body: JSON.stringify({ name }) })
+      const updated = normalizeSession(await api<Session>(`/api/v1/sessions/${value.session_id}`, { method: 'PATCH', body: JSON.stringify({ name }) }))
       if (active?.session_id === updated.session_id) setActive(updated)
       await refreshSessions()
     } catch (err) { setError(err instanceof Error ? err.message : String(err)) }
@@ -237,20 +276,43 @@ export default function App() {
     } catch (err) { setError(err instanceof Error ? err.message : String(err)) }
   }
 
+  const saveLLMConfig = async (event: FormEvent) => {
+    event.preventDefault()
+    if (savingLLM) return
+    setSavingLLM(true); setError('')
+    try {
+      const saved = await api<LLMConfig>('/api/v1/llm/config', { method: 'PUT', body: JSON.stringify(llmForm) })
+      setLLMConfig(saved)
+      setLLMForm({ base_url: saved.base_url || '', api_key: '', model: saved.model || '' })
+    } catch (err) { setError(err instanceof Error ? err.message : String(err)) }
+    finally { setSavingLLM(false) }
+  }
+
+  const clearLLMConfig = async () => {
+    if (!window.confirm('确认清除 Web 保存的 LLM 配置？API key 会从 SafeOps 数据目录删除。')) return
+    setSavingLLM(true); setError('')
+    try {
+      const cleared = await api<LLMConfig>('/api/v1/llm/config', { method: 'DELETE' })
+      setLLMConfig(cleared)
+      setLLMForm({ base_url: '', api_key: '', model: '' })
+    } catch (err) { setError(err instanceof Error ? err.message : String(err)) }
+    finally { setSavingLLM(false) }
+  }
+
   const renderConsole = () => <>
     <section className="messages">
-      {!active?.messages.length && <div className="welcome"><div className="orb">S</div><h2>从真实系统证据开始</h2><p>可输入“查看 CPU 和内存”，或在受控 Demo Lab 中输入“为什么 Web 服务启动失败？帮我恢复。”每个写动作都会展示精确目标、风险、过期时间和独立审批。</p></div>}
-      {active?.messages.map(message => <article key={message.message_id} className={`message ${message.role}`}><div className="avatar">{message.role === 'user' ? '你' : 'S'}</div><div><span className="role">{message.role === 'user' ? '运维人员' : 'SafeOps'}</span><SafeMarkdown content={message.content} /></div></article>)}
-      {progress.length > 0 && <div className="progress-card"><strong>{busy ? '任务运行中' : '任务事件'}</strong>{progress.map((item, index) => <div key={`${index}-${item}`}><i className={index === progress.length - 1 && busy ? 'pulse' : ''} />{item}</div>)}</div>}
+      {!(active?.messages || []).length && <div className="welcome"><div className="orb">S</div><h2>从真实系统证据开始</h2><p>可输入“查看 CPU 和内存”，或在受控 Demo Lab 中输入“为什么 Web 服务启动失败？帮我恢复。”每个写动作都会展示精确目标、风险、过期时间和独立审批。</p></div>}
+      {(active?.messages || []).map(message => <article key={message.message_id} className={`message ${message.role}`}><div className="avatar">{message.role === 'user' ? '你' : 'S'}</div><div><span className="role">{message.role === 'user' ? '运维人员' : 'SafeOps'}</span><SafeMarkdown content={message.content} /></div></article>)}
+      {asArray(progress).length > 0 && <div className="progress-card"><strong>{busy ? '任务运行中' : '任务事件'}</strong>{asArray(progress).map((item, index) => <div key={`${index}-${item}`}><i className={index === asArray(progress).length - 1 && busy ? 'pulse' : ''} />{item}</div>)}</div>}
       {approval?.status === 'PENDING' && task?.pending_action && <section className="approval-card" aria-live="polite">
         <div className="approval-heading"><div><span>人工审批</span><h3>{task.pending_action.proposal.tool}</h3></div><b className={`risk ${task.pending_action.risk.risk_level}`}>{riskLabel(task.pending_action.risk.risk_level)}</b></div>
         <dl><div><dt>精确目标</dt><dd>{targetLabel(task.pending_action.target_snapshot)}</dd></div><div><dt>风险分数</dt><dd>{task.pending_action.risk.risk_score} / 100</dd></div><div><dt>批量范围</dt><dd>{task.pending_action.proposal.batch_size || 1} 个目标</dd></div><div><dt>可逆性</dt><dd>{task.pending_action.proposal.reversible ? `可逆：${task.pending_action.proposal.rollback_strategy || '已声明回滚'}` : '不可逆；执行器仅允许固定验证策略'}</dd></div></dl>
         <p>{task.pending_action.risk.risk_reason}</p>
-        <div className="risk-factors">{task.pending_action.risk.risk_factors?.map(factor => <span key={factor}>{factor}</span>)}</div>
+        <div className="risk-factors">{asArray(task.pending_action.risk.risk_factors).map(factor => <span key={factor}>{factor}</span>)}</div>
         <small>审批 ID：{approval.approval_id}<br />过期：{new Date(approval.expires_at).toLocaleString('zh-CN')}<br />目标快照摘要：{approval.binding.target_snapshot_digest.slice(0, 18)}…</small>
         <div className="approval-actions"><button className="reject" disabled={resolving} onClick={() => resolveApproval('REJECT')}>拒绝并安全结束</button><button className="approve" disabled={resolving} onClick={() => resolveApproval('APPROVE')}>{resolving ? '正在提交' : '批准精确动作'}</button></div>
       </section>}
-      {task && terminal(task.state) && <section className={`result-card ${task.state.toLowerCase()}`}><span>执行结果</span><h3>{task.state === 'COMPLETED' ? '完成条件已满足' : '任务已安全结束'}</h3><p>{task.failure_reason || task.findings?.[task.findings.length - 1] || '权威结果已写入持久 Task 与审计链。'}</p><small>{task.evidence_refs?.length || 0} 条证据引用 · Trace {traceIntegrity || '待校验'}</small></section>}
+      {task && terminal(task.state) && <section className={`result-card ${task.state.toLowerCase()}`}><span>执行结果</span><h3>{task.state === 'COMPLETED' ? '完成条件已满足' : '任务已安全结束'}</h3><p>{task.failure_reason || asArray(task.findings).at(-1) || '权威结果已写入持久 Task 与审计链。'}</p><small>{asArray(task.evidence_refs).length} 条证据引用 · Trace {traceIntegrity || '待校验'}</small></section>}
     </section>
     <form onSubmit={submit}>
       <label className="sr-only" htmlFor="agent-input">描述希望调查的系统问题</label>
@@ -260,8 +322,8 @@ export default function App() {
     </form>
   </>
 
-  const filteredServers = mcpServers.map(server => ({ ...server, tools: server.tools.filter(tool => !toolSearch.trim() || tool.name.toLowerCase().includes(toolSearch.trim().toLowerCase()) || tool.description.toLowerCase().includes(toolSearch.trim().toLowerCase())) })).filter(server => !toolSearch.trim() || server.tools.length > 0 || server.manifest.display_name.includes(toolSearch.trim()))
-  const rcaEvents = traceEvents.filter(event => event.type === 'RCA_RESULT' || event.type === 'KNOWLEDGE_RETRIEVED')
+  const filteredServers = asArray(mcpServers).map(server => ({ ...server, tools: asArray(server.tools).filter(tool => !toolSearch.trim() || tool.name.toLowerCase().includes(toolSearch.trim().toLowerCase()) || tool.description.toLowerCase().includes(toolSearch.trim().toLowerCase())) })).filter(server => !toolSearch.trim() || asArray(server.tools).length > 0 || server.manifest.display_name.includes(toolSearch.trim()))
+  const rcaEvents = asArray(traceEvents).filter(event => event.type === 'RCA_RESULT' || event.type === 'KNOWLEDGE_RETRIEVED')
 
   const renderWorkspace = () => <section className="workspace-page">
     {view === 'overview' && <><div className="page-lead"><h2>系统运行全景</h2><p>来自持久 Session/Task、审批 Store 与 MCP Registry 的实时汇总；不是静态演示数字。</p></div>
@@ -271,20 +333,24 @@ export default function App() {
         <Metric label="等待审批" value={String(overview?.tasks.WAITING_APPROVAL || 0)} detail={`${overview?.approvals.PENDING || 0} 个 Pending Approval`} />
         <Metric label="已完成任务" value={String(overview?.tasks.COMPLETED || 0)} detail={`${overview?.tasks.FAILED || 0} 失败 · ${overview?.tasks.CANCELLED || 0} 取消`} />
       </div>
-      <div className="workspace-grid"><section className="workspace-card"><h3>耐久任务状态</h3>{Object.entries(overview?.tasks || {}).map(([state, count]) => <div className="bar-row" key={state}><span>{state}</span><b>{count}</b></div>)}</section><section className="workspace-card"><h3>最近任务</h3>{tasks.slice(0, 8).map(item => <button className="task-row" key={item.task_id} onClick={() => { setTask(item); if (item.task_id) void syncTask(item.task_id); setView('audit') }}><span>{item.objective || item.task_id}</span><b className={`state ${item.state}`}>{item.state}</b></button>)}</section></div>
+      <div className="workspace-grid"><section className="workspace-card"><h3>耐久任务状态</h3>{Object.entries(overview?.tasks || {}).map(([state, count]) => <div className="bar-row" key={state}><span>{state}</span><b>{count}</b></div>)}</section><section className="workspace-card"><h3>最近任务</h3>{asArray(tasks).slice(0, 8).map(item => <button className="task-row" key={item.task_id} onClick={() => { setTask(normalizeTask(item)); if (item.task_id) void syncTask(item.task_id); setView('audit') }}><span>{item.objective || item.task_id}</span><b className={`state ${item.state}`}>{item.state}</b></button>)}</section></div>
     </>}
     {view === 'tools' && <><div className="page-lead"><h2>MCP 插件与工具</h2><p>全部来自官方协议 initialize/tools-list；生命周期操作不修改 Linux 业务状态。</p><input className="page-search" value={toolSearch} onChange={event => setToolSearch(event.target.value)} placeholder="搜索 Tool 名称或说明" /></div>
-      <div className="server-grid">{filteredServers.map(server => <section className="server-card" key={server.manifest.id}><div><span>{server.manifest.display_name}</span><b className={`server-status ${server.status}`}>{server.status}</b></div><h3>{server.manifest.id} · v{server.manifest.version}</h3><p>{server.manifest.description}</p><small>{server.tools.length} tools · {server.manifest.capabilities.join(' / ')}</small><div className="tool-list">{server.tools.map(tool => <details key={tool.name}><summary>{tool.name}</summary><p>{tool.description}</p><code>{tool.schema_hash.slice(0, 16)}…</code></details>)}</div><div className="server-actions"><button onClick={() => changeServer(server, 'health')}>健康检查</button><button onClick={() => changeServer(server, 'rediscover')}>重新发现</button><button onClick={() => changeServer(server, server.manifest.enabled ? 'disable' : 'enable')}>{server.manifest.enabled ? '停用' : '启用'}</button></div></section>)}</div>
+      <div className="server-grid">{filteredServers.map(server => <section className="server-card" key={server.manifest.id}><div><span>{server.manifest.display_name}</span><b className={`server-status ${server.status}`}>{server.status}</b></div><h3>{server.manifest.id} · v{server.manifest.version}</h3><p>{server.manifest.description}</p><small>{asArray(server.tools).length} tools · {asArray(server.manifest.capabilities).join(' / ')}</small><div className="tool-list">{asArray(server.tools).map(tool => <details key={tool.name}><summary>{tool.name}</summary><p>{tool.description}</p><code>{tool.schema_hash.slice(0, 16)}…</code></details>)}</div><div className="server-actions"><button onClick={() => changeServer(server, 'health')}>健康检查</button><button onClick={() => changeServer(server, 'rediscover')}>重新发现</button><button onClick={() => changeServer(server, server.manifest.enabled ? 'disable' : 'enable')}>{server.manifest.enabled ? '停用' : '启用'}</button></div></section>)}</div>
     </>}
     {view === 'safety' && <><div className="page-lead"><h2>本地安全决策面</h2><p>Tool 自报风险不可信；本地 Policy、Intent Guard、目标快照与执行器重验证才是授权依据。</p></div>
       <div className="boundary-grid"><Metric label="任意命令工具" value="0" detail="未知写能力 fail closed" /><Metric label="待审批" value={String(overview?.approvals.PENDING || 0)} detail="每个动作精确绑定" /><Metric label="执行边界" value="Unix Socket" detail="无公网特权 TCP" /><Metric label="永久清理" value="无 Handler" detail="L3 默认拒绝" /></div>
-      <section className="workspace-card"><h3>审批记录</h3>{approvals.length ? approvals.slice(0, 20).map(item => <div className="approval-row" key={item.approval_id}><div><span>{item.binding.tool}</span><small>{item.approval_id} · policy {item.binding.policy_version}</small></div><b className={`risk ${item.binding.risk_level}`}>{item.binding.risk_level} · {item.status}</b></div>) : <p className="muted">暂无审批记录</p>}</section>
+      <section className="workspace-card"><h3>审批记录</h3>{asArray(approvals).length ? asArray(approvals).slice(0, 20).map(item => <div className="approval-row" key={item.approval_id}><div><span>{item.binding.tool}</span><small>{item.approval_id} · policy {item.binding.policy_version}</small></div><b className={`risk ${item.binding.risk_level}`}>{item.binding.risk_level} · {item.status}</b></div>) : <p className="muted">暂无审批记录</p>}</section>
     </>}
     {view === 'rca' && <><div className="page-lead"><h2>当前任务根因视图</h2><p>展示候选原因、已用证据和缺失证据；D3 不会伪装成确定根因。</p></div>
-      <div className="workspace-grid"><section className="workspace-card"><h3>任务发现</h3>{task?.findings?.length ? task.findings.map(item => <p className="evidence-item" key={item}>{item}</p>) : <p className="muted">选择含 RCA 的任务后显示发现。</p>}<div className="evidence-count">证据引用：{task?.evidence_refs?.length || 0}</div></section><section className="workspace-card"><h3>RCA / Knowledge 事件</h3>{rcaEvents.length ? rcaEvents.map(event => <details className="audit-detail" key={event.sequence}><summary>#{event.sequence} {event.type}</summary><pre>{JSON.stringify(event.data, null, 2)}</pre></details>) : <p className="muted">当前 Trace 尚无 RCA_RESULT。</p>}</section></div>
+      <div className="workspace-grid"><section className="workspace-card"><h3>任务发现</h3>{asArray(task?.findings).length ? asArray(task?.findings).map(item => <p className="evidence-item" key={item}>{item}</p>) : <p className="muted">选择含 RCA 的任务后显示发现。</p>}<div className="evidence-count">证据引用：{asArray(task?.evidence_refs).length}</div></section><section className="workspace-card"><h3>RCA / Knowledge 事件</h3>{rcaEvents.length ? rcaEvents.map(event => <details className="audit-detail" key={event.sequence}><summary>#{event.sequence} {event.type}</summary><pre>{JSON.stringify(event.data, null, 2)}</pre></details>) : <p className="muted">当前 Trace 尚无 RCA_RESULT。</p>}</section></div>
     </>}
     {view === 'audit' && <><div className="page-lead"><h2>可审计推理轨迹</h2><p>只展示结构化 DecisionRecord、Guard、工具、审批、执行与验证；不保存模型隐藏思维过程。</p><span className={`integrity ${traceIntegrity}`}>{traceIntegrity || '请选择任务'}</span></div>
-      <section className="audit-timeline">{traceEvents.length ? traceEvents.map(event => <article key={event.sequence}><span>{event.sequence}</span><div><header><b>{event.type}</b><time>{new Date(event.timestamp).toLocaleString('zh-CN')}</time></header><code>{event.event_hash.slice(0, 20)}…</code>{event.data !== undefined && <details className="audit-detail"><summary>结构化事件数据</summary><pre>{JSON.stringify(event.data, null, 2)}</pre></details>}</div></article>) : <p className="muted">从会话或系统概览选择任务后显示完整 Trace。</p>}</section>
+      <section className="audit-timeline">{asArray(traceEvents).length ? asArray(traceEvents).map(event => <article key={event.sequence}><span>{event.sequence}</span><div><header><b>{event.type}</b><time>{new Date(event.timestamp).toLocaleString('zh-CN')}</time></header><code>{event.event_hash.slice(0, 20)}…</code>{event.data !== undefined && <details className="audit-detail"><summary>结构化事件数据</summary><pre>{JSON.stringify(event.data, null, 2)}</pre></details>}</div></article>) : <p className="muted">从会话或系统概览选择任务后显示完整 Trace。</p>}</section>
+    </>}
+    {view === 'llm' && <><div className="page-lead"><h2>LLM Provider 配置</h2><p>配置 OpenAI-compatible Chat Completions 接口。API key 仅写入后端数据目录，不会通过查询接口回显。</p></div>
+      <div className="workspace-grid"><section className="workspace-card"><h3>当前状态</h3><div className="bar-row"><span>Provider</span><b>{llmConfig?.configured ? '已启用' : '未配置'}</b></div><div className="bar-row"><span>来源</span><b>{llmConfig?.source || '-'}</b></div><div className="bar-row"><span>API Key</span><b>{llmConfig?.api_key_configured ? '已保存' : '未保存'}</b></div><div className="bar-row"><span>模型</span><b>{llmConfig?.model || '-'}</b></div>{llmConfig?.updated_at && <p className="muted">更新时间：{new Date(llmConfig.updated_at).toLocaleString('zh-CN')}</p>}</section>
+        <section className="workspace-card"><h3>接口参数</h3><form className="settings-form" onSubmit={saveLLMConfig}><label>接口地址<input value={llmForm.base_url} onChange={event => setLLMForm(value => ({ ...value, base_url: event.target.value }))} placeholder="https://api.example.com/v1" /></label><label>API Key<input type="password" value={llmForm.api_key} onChange={event => setLLMForm(value => ({ ...value, api_key: event.target.value }))} placeholder={llmConfig?.api_key_configured ? '留空则保留当前密钥' : '输入 API key'} autoComplete="new-password" /></label><label>模型<input value={llmForm.model} onChange={event => setLLMForm(value => ({ ...value, model: event.target.value }))} placeholder="gpt-4.1-mini 或兼容模型名" /></label><div className="settings-actions"><button type="button" disabled={savingLLM || !llmConfig?.configured} onClick={clearLLMConfig}>清除配置</button><button disabled={savingLLM}>{savingLLM ? '保存中' : '保存并启用'}</button></div><small>保存后，多步骤通用任务会使用该 Provider；CPU/内存确定性纵切片不依赖 LLM。</small></form></section></div>
     </>}
   </section>
 
@@ -295,7 +361,7 @@ export default function App() {
       <button className="new-session" onClick={createSession}>＋ 新建会话</button>
       <div className="session-tools"><input value={search} onChange={event => setSearch(event.target.value)} placeholder="搜索历史会话" aria-label="搜索历史会话" /><button onClick={() => setShowArchived(value => !value)}>{showArchived ? '查看活动' : '查看归档'}</button></div>
       <div className="section-label">{showArchived ? '已归档会话' : '历史会话'}</div>
-      <nav>{sessions.map(item => <div key={item.session_id} className={active?.session_id === item.session_id ? 'session-wrap active' : 'session-wrap'}><button className="session" onClick={() => openSession(item.session_id)}><span>{item.name}</span><small>{new Date(item.updated_at).toLocaleString('zh-CN')}</small></button><div><button title="重命名" onClick={() => renameSession(item)}>✎</button><button title={item.archived ? '恢复' : '归档'} onClick={() => toggleArchive(item)}>{item.archived ? '↥' : '⌁'}</button></div></div>)}</nav>
+      <nav>{asArray(sessions).map(item => <div key={item.session_id} className={active?.session_id === item.session_id ? 'session-wrap active' : 'session-wrap'}><button className="session" onClick={() => openSession(item.session_id)}><span>{item.name}</span><small>{new Date(item.updated_at).toLocaleString('zh-CN')}</small></button><div><button title="重命名" onClick={() => renameSession(item)}>✎</button><button title={item.archived ? '恢复' : '归档'} onClick={() => toggleArchive(item)}>{item.archived ? '↥' : '⌁'}</button></div></div>)}</nav>
       <div className="safety-note"><span>安全边界已启用</span><small>39 个 MCP Tool 均为 L0 只读；写动作只走独立审批与 Unix 执行器</small></div>
     </aside>
 
@@ -311,13 +377,13 @@ export default function App() {
       {task && <>
         <div className="task-id">{task.task_id}</div>
         <h3>计划进度</h3>
-        <ol>{task.plan?.map((step, index) => <li key={step.step_id} className={step.state.toLowerCase()}><span>{index + 1}</span><div>{step.description}<small>{step.tool}</small></div></li>)}</ol>
+        <ol>{asArray(task.plan).map((step, index) => <li key={step.step_id} className={step.state.toLowerCase()}><span>{index + 1}</span><div>{step.description}<small>{step.tool}</small></div></li>)}</ol>
         <h3>证据发现</h3>
-        <div className="findings">{task.findings?.length ? task.findings.map(item => <p key={item}>{item}</p>) : <p className="muted">等待新的系统证据</p>}</div>
-        <div className="evidence-count">已绑定 {task.evidence_refs?.length || 0} 条 Trace 证据</div>
+        <div className="findings">{asArray(task.findings).length ? asArray(task.findings).map(item => <p key={item}>{item}</p>) : <p className="muted">等待新的系统证据</p>}</div>
+        <div className="evidence-count">已绑定 {asArray(task.evidence_refs).length} 条 Trace 证据</div>
         {task.failure_reason && <div className="error">{task.failure_reason}</div>}
       </>}
-      <div className="trace-legend"><h3>审计追踪 <b>{traceIntegrity || '等待证据'}</b></h3><p>任务、Guard、审批、执行与验证写入 Hash-Chained JSONL。</p>{traceEvents.slice(-8).map(event => <button className="trace-event" key={event.sequence} onClick={() => setView('audit')}><span>{event.sequence}</span><code>{event.type}</code></button>)}</div>
+      <div className="trace-legend"><h3>审计追踪 <b>{traceIntegrity || '等待证据'}</b></h3><p>任务、Guard、审批、执行与验证写入 Hash-Chained JSONL。</p>{asArray(traceEvents).slice(-8).map(event => <button className="trace-event" key={event.sequence} onClick={() => setView('audit')}><span>{event.sequence}</span><code>{event.type}</code></button>)}</div>
     </aside>
   </div>
 }

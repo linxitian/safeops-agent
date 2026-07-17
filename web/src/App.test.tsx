@@ -58,6 +58,15 @@ const servers = {
   }],
 }
 
+type APIOptions = {
+  session?: Record<string, unknown>
+  approvals?: unknown[] | null
+  tasks?: unknown[] | null
+  servers?: unknown[] | null
+  traceEvents?: unknown[] | null
+  llmConfig?: Record<string, unknown>
+}
+
 class MockEventSource {
   onerror: ((event: Event) => void) | null = null
   constructor(public readonly url: string) {}
@@ -73,17 +82,29 @@ function jsonResponse(body: unknown, status = 200) {
   } as Response
 }
 
-function mockAPI() {
-  vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL) => {
+function mockAPI(options: APIOptions = {}) {
+  const sessionValue = options.session || session
+  let llmConfig = options.llmConfig || { configured: false, api_key_configured: false, last_configuration: 'not configured' }
+  vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
     const url = String(input)
-    if (url.startsWith('/api/v1/sessions?')) return jsonResponse({ sessions: [session] })
-    if (url === '/api/v1/sessions/session-1') return jsonResponse(session)
+    if (url.startsWith('/api/v1/sessions?')) return jsonResponse({ sessions: [sessionValue] })
+    if (url === '/api/v1/sessions/session-1') return jsonResponse(sessionValue)
     if (url === '/api/v1/tasks/task-1') return jsonResponse(task)
-    if (url === '/api/v1/tasks/task-1/trace') return jsonResponse(trace)
+    if (url === '/api/v1/tasks/task-1/trace') return jsonResponse({ ...trace, events: options.traceEvents === undefined ? trace.events : options.traceEvents })
     if (url === '/api/v1/overview') return jsonResponse(overview)
-    if (url === '/api/v1/mcp/servers') return jsonResponse(servers)
-    if (url === '/api/v1/approvals') return jsonResponse({ approvals: [] })
-    if (url.startsWith('/api/v1/tasks?')) return jsonResponse({ tasks: [task] })
+    if (url === '/api/v1/llm/config' && (!init?.method || init.method === 'GET')) return jsonResponse(llmConfig)
+    if (url === '/api/v1/llm/config' && init?.method === 'PUT') {
+      const body = JSON.parse(String(init.body)) as { base_url: string; api_key: string; model: string }
+      llmConfig = { configured: true, base_url: body.base_url, model: body.model, api_key_configured: true, source: 'web', updated_at: '2026-07-17T01:02:03Z' }
+      return jsonResponse(llmConfig)
+    }
+    if (url === '/api/v1/llm/config' && init?.method === 'DELETE') {
+      llmConfig = { configured: false, api_key_configured: false, last_configuration: 'not configured' }
+      return jsonResponse(llmConfig)
+    }
+    if (url === '/api/v1/mcp/servers') return jsonResponse({ servers: options.servers === undefined ? servers.servers : options.servers })
+    if (url === '/api/v1/approvals') return jsonResponse({ approvals: options.approvals === undefined ? [] : options.approvals })
+    if (url.startsWith('/api/v1/tasks?')) return jsonResponse({ tasks: options.tasks === undefined ? [task] : options.tasks })
     return jsonResponse({ error: `unhandled test route: ${url}` }, 404)
   }))
   vi.stubGlobal('EventSource', MockEventSource)
@@ -92,7 +113,7 @@ function mockAPI() {
 }
 
 describe('SafeOps Chinese operational UI', () => {
-  beforeEach(mockAPI)
+  beforeEach(() => mockAPI())
   afterEach(() => {
     cleanup()
     vi.restoreAllMocks()
@@ -129,6 +150,63 @@ describe('SafeOps Chinese operational UI', () => {
     await screen.findByRole('heading', { name: '可审计推理轨迹' })
     expect(screen.getAllByText('RCA_RESULT')).toHaveLength(2)
     expect(screen.getAllByText('VERIFICATION')).toHaveLength(2)
+  })
+
+  it('treats null session messages as an empty durable session', async () => {
+    mockAPI({ session: { ...session, messages: null } })
+    render(<App />)
+
+    await screen.findByRole('heading', { name: '测试会话' })
+    expect(screen.getByRole('heading', { name: '从真实系统证据开始' })).toBeTruthy()
+  })
+
+  it('treats null workspace collections as empty lists', async () => {
+    mockAPI({
+      approvals: null,
+      tasks: null,
+      traceEvents: null,
+      servers: [{
+        ...servers.servers[0],
+        manifest: { ...servers.servers[0].manifest, capabilities: null },
+        tools: null,
+      }],
+    })
+    const user = userEvent.setup()
+    render(<App />)
+
+    await screen.findByRole('heading', { name: '测试会话' })
+    await user.click(screen.getByRole('button', { name: '安全中心' }))
+    await screen.findByRole('heading', { name: '本地安全决策面' })
+    expect(screen.getByText('暂无审批记录')).toBeTruthy()
+
+    await user.click(screen.getByRole('button', { name: '工具中心' }))
+    await screen.findByRole('heading', { name: 'MCP 插件与工具' })
+    expect(screen.getByText('0 tools ·')).toBeTruthy()
+
+    await user.click(screen.getByRole('button', { name: '审计追踪' }))
+    await screen.findByRole('heading', { name: '可审计推理轨迹' })
+    expect(screen.getByText('从会话或系统概览选择任务后显示完整 Trace。')).toBeTruthy()
+  })
+
+  it('saves LLM provider settings without rendering the API key', async () => {
+    const user = userEvent.setup()
+    render(<App />)
+
+    await screen.findByRole('heading', { name: '测试会话' })
+    await user.click(screen.getByRole('button', { name: 'LLM 配置' }))
+    await screen.findByRole('heading', { name: 'LLM Provider 配置' })
+    await user.type(screen.getByLabelText('接口地址'), 'https://llm.example/v1')
+    await user.type(screen.getByLabelText('API Key'), 'secret-key')
+    await user.type(screen.getByLabelText('模型'), 'ops-model')
+    await user.click(screen.getByRole('button', { name: '保存并启用' }))
+
+    await screen.findByText('已启用')
+    expect(screen.getByText('ops-model')).toBeTruthy()
+    expect(screen.queryByText('secret-key')).toBeNull()
+    expect(fetch).toHaveBeenCalledWith('/api/v1/llm/config', expect.objectContaining({
+      method: 'PUT',
+      body: JSON.stringify({ base_url: 'https://llm.example/v1', api_key: 'secret-key', model: 'ops-model' }),
+    }))
   })
 
   it('has no serious or critical automated accessibility violations', async () => {

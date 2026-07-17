@@ -244,13 +244,13 @@ describe('SafeOps Chinese operational UI', () => {
     await screen.findByRole('heading', { name: 'Agent 管控路径' })
     const textarea = screen.getByLabelText('管控路径')
     await user.clear(textarea)
-    await user.type(textarea, '/tmp/safeops-lab')
+    await user.type(textarea, '/var/lib/safeops/lab/config')
     await user.click(screen.getByRole('button', { name: '保存路径' }))
 
-    await waitFor(() => expect(screen.getAllByText('/tmp/safeops-lab').length).toBeGreaterThan(0))
+    await waitFor(() => expect(screen.getAllByText('/var/lib/safeops/lab/config').length).toBeGreaterThan(0))
     expect(fetch).toHaveBeenCalledWith('/api/v1/executor/allowlist', expect.objectContaining({
       method: 'PUT',
-      body: JSON.stringify({ managed_roots: ['/tmp/safeops-lab'] }),
+      body: JSON.stringify({ managed_roots: ['/var/lib/safeops/lab/config'] }),
     }))
   })
 

@@ -71,7 +71,10 @@ func main() {
 		log.Fatal(err)
 	}
 	targets := executor.NewMutableTargets(platform.NewLinux(), platform.NewCommandPlatform(), execConfig.AllowedFileRoots)
-	allowlistManager := executor.NewConfigManager(*executorConfig, execConfig, targets)
+	allowlistManager, err := executor.NewConfigManager(filepath.Join(*dataDir, "state", "executor_allowlist.yaml"), execConfig, targets)
+	if err != nil {
+		log.Fatal(err)
+	}
 	planner := llm.NewRuntimeProvider()
 	llmSettings := llm.NewSettingsStore(filepath.Join(*dataDir, "state", "llm_config.json"))
 	if stored, loadErr := llmSettings.Load(); loadErr == nil {

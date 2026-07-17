@@ -1,6 +1,7 @@
 package executor
 
 import (
+	"errors"
 	"fmt"
 	"gopkg.in/yaml.v3"
 	"os"
@@ -31,10 +32,18 @@ type AllowlistStatus struct {
 }
 
 type ConfigManager struct {
-	mu      sync.Mutex
-	path    string
-	config  Config
-	targets *MutableTargets
+	mu           sync.Mutex
+	path         string
+	config       Config
+	maximumRoots []string
+	targets      *MutableTargets
+}
+
+var ErrInvalidManagedRoots = errors.New("invalid managed roots")
+
+type managedRootsConfig struct {
+	SchemaVersion int      `yaml:"schema_version"`
+	ManagedRoots  []string `yaml:"managed_roots"`
 }
 
 func LoadConfig(path string) (Config, error) {
@@ -65,11 +74,38 @@ func LoadConfig(path string) (Config, error) {
 	if config.AllowedFileRoots, err = normalizeAllowlistRoots(config.AllowedFileRoots, ""); err != nil {
 		return Config{}, fmt.Errorf("allowed_file_roots: %w", err)
 	}
+	if err := validateRootsWithin(config.LabFileRoots, config.AllowedFileRoots); err != nil {
+		return Config{}, fmt.Errorf("lab_file_roots: %w", err)
+	}
+	if err := validateRootsWithin([]string{config.QuarantineRoot}, config.AllowedFileRoots); err != nil {
+		return Config{}, fmt.Errorf("quarantine_root: %w", err)
+	}
 	return config, nil
 }
 
-func NewConfigManager(path string, config Config, targets *MutableTargets) *ConfigManager {
-	return &ConfigManager{path: filepath.Clean(path), config: config, targets: targets}
+func NewConfigManager(path string, config Config, targets *MutableTargets) (*ConfigManager, error) {
+	path = filepath.Clean(path)
+	maximumRoots := append([]string(nil), config.LabFileRoots...)
+	managedRoots := append([]string(nil), maximumRoots...)
+	if value, err := loadManagedRoots(path); err == nil {
+		managedRoots = value
+	} else if !errors.Is(err, os.ErrNotExist) {
+		return nil, err
+	}
+	normalized, err := normalizeAllowlistRoots(managedRoots, config.QuarantineRoot)
+	if err != nil {
+		return nil, fmt.Errorf("load managed roots: %w", err)
+	}
+	if err := validateRootsWithin(normalized, maximumRoots); err != nil {
+		return nil, fmt.Errorf("load managed roots: %w", err)
+	}
+	config.LabFileRoots = normalized
+	config.AllowedFileRoots = appendUniquePaths(append([]string(nil), normalized...), config.QuarantineRoot)
+	manager := &ConfigManager{path: path, config: config, maximumRoots: maximumRoots, targets: targets}
+	if targets != nil {
+		targets.UpdateAllowedFileRoots(config.AllowedFileRoots)
+	}
+	return manager, nil
 }
 
 func (m *ConfigManager) Status() AllowlistStatus {
@@ -83,12 +119,15 @@ func (m *ConfigManager) UpdateManagedRoots(roots []string) (AllowlistStatus, err
 	defer m.mu.Unlock()
 	normalized, err := normalizeAllowlistRoots(roots, m.config.QuarantineRoot)
 	if err != nil {
-		return AllowlistStatus{}, err
+		return AllowlistStatus{}, fmt.Errorf("%w: %v", ErrInvalidManagedRoots, err)
+	}
+	if err := validateRootsWithin(normalized, m.maximumRoots); err != nil {
+		return AllowlistStatus{}, fmt.Errorf("%w: %v", ErrInvalidManagedRoots, err)
 	}
 	next := m.config
 	next.LabFileRoots = normalized
 	next.AllowedFileRoots = appendUniquePaths(append([]string(nil), normalized...), next.QuarantineRoot)
-	if err := SaveConfig(m.path, next); err != nil {
+	if err := saveManagedRoots(m.path, normalized); err != nil {
 		return AllowlistStatus{}, err
 	}
 	m.config = next
@@ -104,7 +143,7 @@ func (m *ConfigManager) statusLocked() AllowlistStatus {
 		ManagedRoots:            append([]string(nil), m.config.LabFileRoots...),
 		AllowedFileRoots:        append([]string(nil), m.config.AllowedFileRoots...),
 		QuarantineRoot:          m.config.QuarantineRoot,
-		RequiresExecutorRestart: true,
+		RequiresExecutorRestart: false,
 	}
 	if info, err := os.Stat(m.path); err == nil {
 		status.UpdatedAt = info.ModTime().UTC()
@@ -117,17 +156,44 @@ func (m *ConfigManager) statusLocked() AllowlistStatus {
 	return status
 }
 
+func loadManagedRoots(path string) ([]string, error) {
+	b, err := os.ReadFile(path)
+	if err != nil {
+		return nil, err
+	}
+	var stored managedRootsConfig
+	if err := yaml.Unmarshal(b, &stored); err != nil {
+		return nil, fmt.Errorf("parse managed roots config: %w", err)
+	}
+	if stored.SchemaVersion != 1 {
+		return nil, fmt.Errorf("unsupported managed roots schema %d", stored.SchemaVersion)
+	}
+	return stored.ManagedRoots, nil
+}
+
+func saveManagedRoots(path string, roots []string) error {
+	b, err := yaml.Marshal(managedRootsConfig{SchemaVersion: 1, ManagedRoots: roots})
+	if err != nil {
+		return err
+	}
+	return saveConfigBytes(path, b, 0o640)
+}
+
 func SaveConfig(path string, config Config) error {
 	config.SchemaVersion = 1
 	b, err := yaml.Marshal(config)
 	if err != nil {
 		return err
 	}
+	return saveConfigBytes(path, b, 0o644)
+}
+
+func saveConfigBytes(path string, b []byte, defaultMode os.FileMode) error {
 	dir := filepath.Dir(path)
 	if err := os.MkdirAll(dir, 0o750); err != nil {
 		return err
 	}
-	mode := os.FileMode(0o644)
+	mode := defaultMode
 	if info, err := os.Stat(path); err == nil {
 		mode = info.Mode().Perm()
 	}
@@ -178,8 +244,8 @@ func normalizeAllowlistRoots(values []string, quarantineRoot string) ([]string, 
 		if err != nil {
 			return nil, err
 		}
-		if quarantineRoot != "" && sameOrInside(root, quarantineRoot) {
-			return nil, fmt.Errorf("managed root %s must not be inside quarantine root %s", root, quarantineRoot)
+		if quarantineRoot != "" && (sameOrInside(root, quarantineRoot) || sameOrInside(quarantineRoot, root)) {
+			return nil, fmt.Errorf("managed root %s must not overlap quarantine root %s", root, quarantineRoot)
 		}
 		out = appendUniquePaths(out, root)
 	}
@@ -203,7 +269,26 @@ func normalizeAllowlistRoot(value string) (string, error) {
 	} else if !os.IsNotExist(err) {
 		return "", err
 	}
+	if clean == string(filepath.Separator) {
+		return "", fmt.Errorf("root filesystem is too broad for allowlist")
+	}
 	return clean, nil
+}
+
+func validateRootsWithin(roots, maximumRoots []string) error {
+	for _, root := range roots {
+		allowed := false
+		for _, maximum := range maximumRoots {
+			if sameOrInside(root, maximum) {
+				allowed = true
+				break
+			}
+		}
+		if !allowed {
+			return fmt.Errorf("managed root %s is outside administrator-defined roots", root)
+		}
+	}
+	return nil
 }
 
 func appendUniquePaths(values []string, next string) []string {

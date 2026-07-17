@@ -62,3 +62,21 @@ func TestRuntimeLogPreservesStreamingFlusher(t *testing.T) {
 		t.Fatalf("streaming response failed: %d %q", response.Code, response.Body.String())
 	}
 }
+
+func TestRuntimeLogKeepsFirstResponseStatus(t *testing.T) {
+	var log bytes.Buffer
+	wrapped := (&runtimeLog{writer: &log}).handler(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusCreated)
+		w.WriteHeader(http.StatusInternalServerError)
+	}))
+	response := httptest.NewRecorder()
+	wrapped.ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/status", nil))
+
+	var entry runtimeLogEntry
+	if err := json.Unmarshal(bytes.TrimSpace(log.Bytes()), &entry); err != nil {
+		t.Fatal(err)
+	}
+	if response.Code != http.StatusCreated || entry.Status != http.StatusCreated {
+		t.Fatalf("first status was not preserved: response=%d log=%d", response.Code, entry.Status)
+	}
+}

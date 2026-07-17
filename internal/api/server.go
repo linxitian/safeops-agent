@@ -218,7 +218,11 @@ func (s *Server) putExecutorAllowlist(w http.ResponseWriter, r *http.Request) {
 	}
 	status, err := s.executorAllowlist.UpdateManagedRoots(input.ManagedRoots)
 	if err != nil {
-		writeError(w, http.StatusBadRequest, err)
+		if errors.Is(err, executor.ErrInvalidManagedRoots) {
+			writeError(w, http.StatusBadRequest, err)
+		} else {
+			writeError(w, http.StatusInternalServerError, err)
+		}
 		return
 	}
 	status.WriteActionsEnabled = s.agent != nil && s.agent.Actions != nil && s.agent.FileTargets != nil

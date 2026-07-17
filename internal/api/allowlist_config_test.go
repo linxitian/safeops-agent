@@ -21,8 +21,9 @@ func TestExecutorAllowlistAPIUpdatesConfigAndServerTargets(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	labA := filepath.Join(root, "lab-a")
-	labB := filepath.Join(root, "lab-b")
+	lab := filepath.Join(root, "lab")
+	labA := filepath.Join(lab, "a")
+	labB := filepath.Join(lab, "b")
 	quarantine := filepath.Join(root, "quarantine")
 	for _, dir := range []string{labA, labB, quarantine} {
 		if err := os.MkdirAll(dir, 0o750); err != nil {
@@ -30,8 +31,13 @@ func TestExecutorAllowlistAPIUpdatesConfigAndServerTargets(t *testing.T) {
 		}
 	}
 	configPath := filepath.Join(root, "executor.yaml")
-	initial := executor.Config{SchemaVersion: 1, AllowedFileRoots: []string{labA, quarantine}, LabFileRoots: []string{labA}, QuarantineRoot: quarantine}
+	statePath := filepath.Join(root, "state", "executor_allowlist.yaml")
+	initial := executor.Config{SchemaVersion: 1, AllowedFileRoots: []string{lab, quarantine}, LabFileRoots: []string{lab}, QuarantineRoot: quarantine}
 	if err := executor.SaveConfig(configPath, initial); err != nil {
+		t.Fatal(err)
+	}
+	staticConfig, err := os.ReadFile(configPath)
+	if err != nil {
 		t.Fatal(err)
 	}
 	loaded, err := executor.LoadConfig(configPath)
@@ -39,7 +45,10 @@ func TestExecutorAllowlistAPIUpdatesConfigAndServerTargets(t *testing.T) {
 		t.Fatal(err)
 	}
 	targets := executor.NewMutableTargets(platform.NewLinux(), platform.NewCommandPlatform(), loaded.AllowedFileRoots)
-	manager := executor.NewConfigManager(configPath, loaded, targets)
+	manager, err := executor.NewConfigManager(statePath, loaded, targets)
+	if err != nil {
+		t.Fatal(err)
+	}
 	server := New(fileStore, registry.New(registry.Config{}), &agent.Orchestrator{Actions: &agent.ActionPreparer{}, FileTargets: targets}, nil, WithExecutorAllowlist(manager))
 
 	get := requestJSON(t, server.Handler(), http.MethodGet, "/api/v1/executor/allowlist", map[string]any{})
@@ -50,7 +59,7 @@ func TestExecutorAllowlistAPIUpdatesConfigAndServerTargets(t *testing.T) {
 	if err := json.Unmarshal(get.Body.Bytes(), &status); err != nil {
 		t.Fatal(err)
 	}
-	if !status.WriteActionsEnabled || len(status.ManagedRoots) != 1 || status.ManagedRoots[0] != labA {
+	if !status.WriteActionsEnabled || len(status.ManagedRoots) != 1 || status.ManagedRoots[0] != lab || status.RequiresExecutorRestart {
 		t.Fatalf("unexpected initial status: %+v", status)
 	}
 
@@ -58,12 +67,15 @@ func TestExecutorAllowlistAPIUpdatesConfigAndServerTargets(t *testing.T) {
 	if put.Code != http.StatusOK {
 		t.Fatalf("PUT returned %d %s", put.Code, put.Body.String())
 	}
-	stored, err := executor.LoadConfig(configPath)
+	unchangedConfig, err := os.ReadFile(configPath)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(stored.LabFileRoots) != 1 || stored.LabFileRoots[0] != labB {
-		t.Fatalf("stored lab roots were not updated: %+v", stored)
+	if string(unchangedConfig) != string(staticConfig) {
+		t.Fatal("root-owned executor config was modified by the API")
+	}
+	if _, err := os.Stat(statePath); err != nil {
+		t.Fatalf("mutable allowlist state was not persisted: %v", err)
 	}
 	if _, err := targets.SnapshotNewFile(context.Background(), filepath.Join(labB, "created.txt"), filepath.Join(labB, "created.txt")); err != nil {
 		t.Fatalf("server targets did not pick up updated allowlist: %v", err)
@@ -92,10 +104,13 @@ func TestExecutorAllowlistAPIRejectsUnsafeRoots(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	manager := executor.NewConfigManager(configPath, loaded, nil)
+	manager, err := executor.NewConfigManager(filepath.Join(root, "state", "executor_allowlist.yaml"), loaded, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
 	server := New(fileStore, registry.New(registry.Config{}), nil, nil, WithExecutorAllowlist(manager))
 
-	for _, bad := range [][]string{{"relative/path"}, {"/"}, {quarantine}} {
+	for _, bad := range [][]string{{"relative/path"}, {"/"}, {quarantine}, {root}, {filepath.Join(root, "outside")}} {
 		response := requestJSON(t, server.Handler(), http.MethodPut, "/api/v1/executor/allowlist", map[string]any{"managed_roots": bad})
 		if response.Code != http.StatusBadRequest {
 			t.Fatalf("unsafe roots %v returned %d %s", bad, response.Code, response.Body.String())

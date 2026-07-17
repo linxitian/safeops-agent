@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"reflect"
 	"testing"
 	"time"
 
@@ -155,5 +156,30 @@ func TestDeploymentManifestUsesAbsoluteCommands(t *testing.T) {
 		if !filepath.IsAbs(server.Command) || filepath.Dir(server.Command) != "/opt/safeops/bin" {
 			t.Fatalf("server %s command is not an absolute release path: %q", server.ID, server.Command)
 		}
+	}
+}
+
+func TestConfigManifestsPreserveBothManagedRootsAsOneArgument(t *testing.T) {
+	want := []string{"--roots", "/etc/safeops,/var/lib/safeops/lab/config"}
+	for _, path := range []string{
+		filepath.Join("..", "..", "config", "mcp_servers.yaml"),
+		filepath.Join("..", "..", "deploy", "config", "mcp_servers.yaml"),
+	} {
+		t.Run(filepath.ToSlash(path), func(t *testing.T) {
+			config, err := registry.Load(path)
+			if err != nil {
+				t.Fatal(err)
+			}
+			for _, server := range config.Servers {
+				if server.ID != "config" {
+					continue
+				}
+				if !reflect.DeepEqual(server.Arguments, want) {
+					t.Fatalf("mcp-config arguments are %#v, want %#v", server.Arguments, want)
+				}
+				return
+			}
+			t.Fatal("config server manifest is missing")
+		})
 	}
 }

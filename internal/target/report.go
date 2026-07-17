@@ -158,18 +158,13 @@ func Test(ctx context.Context, mcpConfig string) Report {
 		}
 		report.Checks = append(report.Checks, Check{Name: "mcp_ping_" + state.Manifest.ID, Status: checkStatus, Details: details})
 	}
-	callCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
-	result, err := reg.CallTool(callCtx, "system", "system.get_memory_metrics", map[string]any{})
-	cancel()
-	if err != nil || result == nil || result.IsError || result.StructuredContent == nil {
-		details := fmt.Sprint(err)
-		if result != nil && result.IsError {
-			details = "MCP tool returned IsError"
-		}
-		report.Checks = append(report.Checks, Check{Name: "mcp_real_memory_call", Status: Fail, Details: details})
+	calls := targetToolCalls(os.Getpid())
+	if err := validateTargetCallCoverage(states, calls); err != nil {
+		report.Checks = append(report.Checks, Check{Name: "mcp_call_plan", Status: Fail, Details: boundedDetail(err.Error())})
 	} else {
-		report.Checks = append(report.Checks, Check{Name: "mcp_real_memory_call", Status: Pass, Details: "structured /proc memory result"})
+		report.Checks = append(report.Checks, Check{Name: "mcp_call_plan", Status: Pass, Details: fmt.Sprintf("%d/%d discovered tools have one native call", len(calls), tools)})
 	}
+	appendTargetToolCallChecks(ctx, &report, reg, calls)
 	report.finish()
 	return report
 }

@@ -19,15 +19,23 @@ import (
 var sysctlKeyPattern = regexp.MustCompile(`^[a-zA-Z0-9_]+(?:\.[a-zA-Z0-9_]+){1,7}$`)
 
 type LinuxPlatform struct {
-	procRoot string
-	etcRoot  string
-	now      func() time.Time
+	procRoot                  string
+	etcRoot                   string
+	now                       func() time.Time
+	processExecutableFallback ProcessExecutableFallback
 }
 
 type LinuxOption func(*LinuxPlatform)
 
 func WithRoots(procRoot, etcRoot string) LinuxOption {
 	return func(p *LinuxPlatform) { p.procRoot, p.etcRoot = procRoot, etcRoot }
+}
+
+// WithProcessExecutableFallback configures the privileged executor's narrow
+// fallback for Linux /proc/PID/exe permission checks. Read-only MCP servers do
+// not configure this option.
+func WithProcessExecutableFallback(fallback ProcessExecutableFallback) LinuxOption {
+	return func(p *LinuxPlatform) { p.processExecutableFallback = fallback }
 }
 
 func NewLinux(opts ...LinuxOption) *LinuxPlatform {

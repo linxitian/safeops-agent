@@ -6,7 +6,7 @@
 
 SafeOps 是自然语言与 Linux 运维能力之间的安全桥梁：它通过真实系统证据和 MCP 工具完成调查，并把受控写操作约束在“意图校验、风险评估、审批、最小权限执行、验证与回滚”的边界内。它不是普通聊天机器人，也不会把模型生成的 Shell 命令直接交给 Linux。
 
-> 当前状态：七类统一 Collector 与六页面中文 Web 保持 `TESTED`；8 域 39 个 MCP Tool、双 Guard/Risk、完整 Trace、通用 Agent Runtime、证据图/BM25/RCA、审批/最小权限执行，以及端口、CPU、磁盘/日志和多轮文件流程已通过官方银河麒麟 V11/LoongArch64 目标验证。最终合并版 `1a10880` 已完成哈希校验、安装、启动、健康检查、真实兼容 Provider 多轮调用与重复安装配置保留；部署里程碑仍为 `PARTIAL`，因为目标机卸载尚未在可丢弃快照上验证。
+> 当前状态：七类统一 Collector 与六页面中文 Web 保持 `TESTED`；8 域 39 个 MCP Tool、双 Guard/Risk、完整 Trace、通用 Agent Runtime、证据图/BM25/RCA、审批/最小权限执行，以及端口、CPU、磁盘/日志、多轮文件和发布部署流程已通过官方银河麒麟 V11/LoongArch64 目标验证。最终运行时 `1a10880` 与后续文档版 `0b88b6f` 已完成哈希校验、安装、启动、健康检查、真实兼容 Provider、多轮调用、默认数据保留卸载及配置连续性重装。
 
 ## 五大核心支柱
 
@@ -229,7 +229,7 @@ dist/release/safeops-agent-linux-loong64.tar.gz.sha256
 
 包内含 16 个静态 LoongArch ELF、预构建中文 Web、绝对路径 MCP Manifest、Policy、Knowledge、hardened systemd units、`VERSION` 和逐文件 `SHA256SUMS`。`deploy/install.sh` 检查 root、Linux/LoongArch64、systemd、必要工具与双层哈希，创建非 root `safeops` 用户及规定目录，安装全部内容、设置权限、启动两个核心服务并轮询 `/healthz`。执行器默认 `dry-run`；仅可用 `SAFEOPS_EXECUTOR_MODE=lab` 显式开启固定 Lab Handler。四个异常复现 unit 只安装，不自动启用。
 
-`deploy/uninstall.sh` 停止/移除服务和程序但默认保留 `/var/lib/safeops`；只有显式 `--purge-data` 才删除持久 Session、Task、审批、Trace、隔离与 Lab 数据。脚本语法、39 项包内哈希和六个 unit 的 staged-root 校验已通过；官方目标机上的真实 root 安装、启动、健康检查、重复安装和 LLM 环境保留已通过，卸载仍需在可丢弃 VM 快照上验证。
+`deploy/uninstall.sh` 停止/移除服务和程序但默认保留 `/var/lib/safeops`；只有显式 `--purge-data` 才删除持久 Session、Task、审批、Trace、隔离与 Lab 数据。官方目标机默认卸载已确认 `/opt`、`/etc` 和六个 unit 被移除，而 140 个持久文件哈希及 153 条元数据完全不变；root-only 恢复 `safeops.env` 与 `privexec.hmac` 后，重装保持了 LLM、审批签名和历史 Trace 连续性。具体操作见 [部署文档](deploy/README.md)。
 
 ## 测试与 Benchmark
 
@@ -260,7 +260,7 @@ artifacts/benchmark/benchmark-report.md
 - 通用 Agent Runtime 已用真实兼容 Provider 在目标机验证；近期用户/助手消息和有序已选资源会以有界、脱敏结构进入追问规划，单次 Provider 调用受持久 Agent 截止时间约束。无 Provider 时仍可使用 CPU/内存确定性纵切片。
 - SSE 保留最近 200 个进程内事件用于 `Last-Event-ID` 回放；跨重启不伪造历史，而是发出 `task.gap` + 持久 Task 快照并让前端回读完整 Trace。
 - Session JSON 当前内嵌 Messages；文件锁与原子 mutation 已避免并发丢失，但超长会话未来仍可拆成独立 Message Store。
-- Guard/Risk、完整 Trace、审批恢复、受限 Lab Executor、Rollback、Evidence Graph/BM25/RCA、三个固定恢复状态机、多轮文件、targetctl 和 release 安装/健康已取得目标证据；卸载、完整六页目标浏览器遍历、所有 Collector 适配器的目标执行和目标 Benchmark 尚未完成。
+- Guard/Risk、完整 Trace、审批恢复、受限 Lab Executor、Rollback、Evidence Graph/BM25/RCA、三个固定恢复状态机、多轮文件、targetctl 和 release 安装/健康/数据保留卸载已取得目标证据；完整六页目标浏览器遍历、所有 Collector 适配器的目标执行和目标 Benchmark 尚未完成。
 
 ## 项目文档
 

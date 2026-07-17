@@ -51,6 +51,9 @@ The port, CPU, disk and injection tasks were first executed on ancestor release 
 - `safeops-server` and all MCP subprocesses ran as the non-root `safeops` user.
 - Privileged actions crossed the Unix socket to fixed Lab handlers; no arbitrary shell or command tool was introduced.
 - Install, service start, `/healthz`, repeated reinstall and LLM environment preservation passed on the target.
+- Follow-up release `0b88b6f` (a documentation-only descendant of the audited runtime) produced archive SHA-256 `2c0abb54d43c243370ccb0730917d01e30db55f8845f7db1e0598fa3d58ec8cc` and completed the default target uninstall/reinstall test.
+- After stopping the two core services, the default uninstaller removed `/opt/safeops`, `/etc/safeops` and all six units while retaining the `safeops` identity. The 140-file SHA-256 manifest and 153-row metadata manifest for `/var/lib/safeops` were byte-identical before and after uninstall.
+- A root-only backup restored `safeops.env` and `privexec.hmac` before reinstall. Health returned 8/8 MCP and 39 tools; 15 Sessions, 29 Tasks and 17 approvals remained readable; a retained 19-event Trace was still `VALID`/`FINAL`; provider and HMAC continuity passed.
 - A slow-provider task that previously left task/Trace state inconsistent was recovered after the deadline fix to durable `FAILED`, with its lease released and Trace still `VALID`.
 - Lab generator units were stopped after testing. The restored files matched their original sizes and the final quarantine object was absent.
 
@@ -58,9 +61,10 @@ The port, CPU, disk and injection tasks were first executed on ancestor release 
 
 The audited native evidence promotes MCP discovery/runtime, general provider interaction, safety/approval/executor/rollback, evidence/RCA, hash Trace, port/CPU/disk/file workflows, and Kylin/LoongArch64 compatibility to `TARGET_VERIFIED`.
 
+Release/deployment is also `TARGET_VERIFIED` for checksum verification, install, start, health, repeated reinstall, default data-preserving uninstall and configuration-continuity restore. The uninstaller intentionally removes `/etc/safeops`; retaining provider and approval-signing identity requires the root-only procedure in `deploy/README.md`.
+
 The following remain below `TARGET_VERIFIED`:
 
-- release/deployment remains `PARTIAL` because the data-preserving uninstaller has not been exercised on a disposable target snapshot;
 - the seven-Collector abstraction remains `TESTED` because `targetctl` does not individually execute every Collector adapter;
 - the six-page UI remains `TESTED`; the installed console was served and used, but a systematic target-browser traversal/accessibility run was not captured;
 - benchmarks remain `TESTED` on the development host and are not treated as target evidence;

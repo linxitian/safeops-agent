@@ -22,7 +22,7 @@ Updated: 2026-07-18
 | M13 Full Chinese UI | TESTED | Six Chinese pages, conversation-first sidebar history, search/rename/archive, approval/result cards, RCA/audit projections, typed SSE replay/gap/snapshot sync, strict CSP, component navigation/unsafe-Markdown and serious accessibility checks pass |
 | M14 Target compatibility | TARGET_VERIFIED | Audited final-release reports identify Kylin V11/loong64, glibc 2.38 and systemd 255; 8/8 MCP and 39/39 tools pass, with WARN only for optional target `git`/`go` commands |
 | M15 Benchmarks | TESTED | Six `safeops-bench` suites, 16 measured metrics, fixed JSON/Markdown artifacts and full milestone gates pass on Ubuntu |
-| M16 Release/deploy | PARTIAL | Final `1a10880` archive hash, target install/start/health and repeated reinstall/environment preservation pass; data-preserving target uninstall remains untested |
+| M16 Release/deploy | TARGET_VERIFIED | Target checksum/install/start/health/reinstall pass; default uninstall removed binaries/config/units while 140 durable file hashes and 153 metadata rows stayed identical, then root-only environment/HMAC restoration preserved continuity |
 
 ## Actual changes in the current development stage
 
@@ -87,7 +87,7 @@ Updated: 2026-07-18
 | M16 release pipeline | PASS locally; tests/vet/frontend plus 16 amd64 and 16 loong64 commands, fixed tar.gz and outer SHA256 produced |
 | Release artifact verification | PASS; outer hash, 39 bundle-file hashes, 16 static LoongArch ELF files and six staged systemd units verified |
 | Target install/start/health/reinstall | PASS; final release checksum verified, services healthy, operator LLM environment preserved |
-| Target data-preserving uninstall | NOT_TESTED; requires a disposable VM snapshot so installed configuration can be safely removed |
+| Target data-preserving uninstall | PASS; `/opt`/`/etc`/six units removed, `/var/lib/safeops` hashes and metadata identical, user/group retained, root-only configuration continuity restored before reinstall |
 | Real Ubuntu `/proc` Platform smoke | PASS |
 | Live Session → Task → MCP → answer → SSE | PASS |
 | Restart restores completed Session/Task/Trace | PASS |
@@ -114,7 +114,7 @@ Request: `查看 CPU 和内存。`
 
 - MCP registry/tools, the bounded general Agent, Guards/risk, fixed executor/approval/rollback, Evidence/RAG/RCA, complete Trace and durable context/resume are now `TARGET_VERIFIED` for their audited target paths.
 - Port, CPU, disk/log and multi-turn file Demos are now `TARGET_VERIFIED`; exact task and Trace identifiers are in `docs/target-verification-2026-07-18.md`.
-- Kylin V11/LoongArch64 compatibility is `TARGET_VERIFIED`. Release/deployment remains `PARTIAL` because uninstall is not yet target-tested.
+- Kylin V11/LoongArch64 compatibility and release/deployment are `TARGET_VERIFIED`; the documented root-only backup is required only when operator configuration and approval-signing identity must survive the intentional `/etc` removal.
 - OS depth perception and the six-page Chinese Web remain `TESTED`: native workflows cover their used paths, but not every Collector adapter or a systematic target-browser traversal.
 - Benchmark/evaluation remains `TESTED` on controlled development-host suites and is not promoted using unrelated target evidence.
 
@@ -132,11 +132,10 @@ All named target workflows have `VALID` hash-chained Traces. The six-page UI rem
 
 ## Real blockers
 
-- Data-preserving uninstall remains unverified on the target; it should be exercised only after taking a disposable VM snapshot because `/etc/safeops` is intentionally removed.
 - A systematic target-browser traversal of all six pages and target-side accessibility capture remains outstanding.
 - The target image lacks optional `git` and `go` commands. They are not release runtime dependencies, but their absence remains visible as bounded report warnings.
 - `make` is absent on the Ubuntu development host, but equivalent direct commands pass, so this does not block development.
 
 ## Human action required now
 
-Before testing uninstall, take a disposable snapshot of the target VM. The next manual evidence priorities are the data-preserving uninstall/reinstall cycle and a recorded traversal of all six installed Web pages; provider credentials and official target reports are no longer blockers.
+The next manual evidence priority is a recorded traversal of all six installed Web pages. Provider credentials, official target reports and data-preserving uninstall/reinstall are no longer blockers.

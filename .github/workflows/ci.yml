@@ -39,6 +39,9 @@ jobs:
       - name: Run Go vet
         run: go vet ./...
 
+      - name: Test installer environment preservation
+        run: ./scripts/test-install-env.sh
+
   frontend:
     name: Frontend test, lint, and build
     runs-on: ubuntu-latest

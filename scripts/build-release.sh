@@ -15,6 +15,8 @@ echo "[release] Go test"
 CGO_ENABLED=0 "$go_bin" test ./...
 echo "[release] Go vet"
 CGO_ENABLED=0 "$go_bin" vet ./...
+echo "[release] Installer environment regression"
+"$repo_root/scripts/test-install-env.sh"
 echo "[release] Frontend component/accessibility tests"
 "$npm_bin" --prefix web test
 echo "[release] Frontend lint"
@@ -46,7 +48,7 @@ cp config/executor.yaml "$bundle/config/executor.yaml"
 cp policies/tools.yaml "$bundle/policies/tools.yaml"
 cp -a knowledge/. "$bundle/knowledge/"
 cp -a web/dist/. "$bundle/web/"
-cp deploy/install.sh deploy/uninstall.sh deploy/README.md "$bundle/deploy/"
+cp deploy/install.sh deploy/install-env.sh deploy/uninstall.sh deploy/README.md "$bundle/deploy/"
 cp deploy/systemd/*.service "$bundle/deploy/systemd/"
 cp lab/systemd/*.service "$bundle/lab/systemd/"
 cp lab/README.md "$bundle/lab/README.md"

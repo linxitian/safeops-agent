@@ -42,6 +42,8 @@ sudo SAFEOPS_EXECUTOR_MODE=lab ./deploy/install.sh
 
 The installer enables and starts `safeops-privexec.service` and `safeops-server.service`, then checks `http://127.0.0.1:8080/healthz`. It installs the four Lab units but does not enable or start them.
 
+On reinstall, the installer atomically updates only `SAFEOPS_EXECUTOR_MODE` in `/etc/safeops/safeops.env`. It preserves operator comments and unrelated settings such as the supported `SAFEOPS_LLM_*` variables, normalizes duplicate executor-mode entries to one authoritative value, and restores `root:safeops` ownership with mode `0640`. Existing symlinks and malformed executor modes fail closed.
+
 Uninstall preserves `/var/lib/safeops` by default:
 
 ```bash

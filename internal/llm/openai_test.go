@@ -21,6 +21,15 @@ func TestOpenAICompatibleDecisionContract(t *testing.T) {
 		if request["model"] != "test-model" || request["response_format"].(map[string]any)["type"] != "json_object" {
 			t.Fatalf("unexpected payload: %#v", request)
 		}
+		messages := request["messages"].([]any)
+		userPrompt := messages[1].(map[string]any)["content"].(string)
+		var decisionRequest DecisionRequest
+		if err := json.Unmarshal([]byte(userPrompt), &decisionRequest); err != nil {
+			t.Fatal(err)
+		}
+		if decisionRequest.SessionContext == nil || len(decisionRequest.SessionContext.SelectedResources) != 1 || decisionRequest.SessionContext.RecentMessages[0].Content != "之前的问题" {
+			t.Fatalf("session context missing from provider prompt: %+v", decisionRequest.SessionContext)
+		}
 		content := `{"kind":"tool","decision_summary":"读取负载确认现状","server_id":"system","tool":"system.get_load_average","arguments":{},"expected_observation":"结构化负载"}`
 		_ = json.NewEncoder(w).Encode(map[string]any{"choices": []any{map[string]any{"message": map[string]any{"role": "assistant", "content": content}}}})
 	}))
@@ -29,12 +38,18 @@ func TestOpenAICompatibleDecisionContract(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	decision, err := provider.Decide(context.Background(), DecisionRequest{Objective: "查看负载", OriginalRequest: "查看负载", Tools: []ToolCapability{{ServerID: "system", Name: "system.get_load_average", InputSchema: json.RawMessage(`{"type":"object"}`)}}})
+	decision, err := provider.Decide(context.Background(), DecisionRequest{Objective: "查看负载", OriginalRequest: "查看负载", SessionContext: &SessionContext{RecentMessages: []SessionMessage{{Role: "user", Content: "之前的问题"}}, SelectedResources: []string{"/var/lib/safeops/lab/demo.log"}}, Tools: []ToolCapability{{ServerID: "system", Name: "system.get_load_average", InputSchema: json.RawMessage(`{"type":"object"}`)}}})
 	if err != nil {
 		t.Fatal(err)
 	}
 	if decision.Kind != DecisionTool || decision.Tool != "system.get_load_average" {
 		t.Fatalf("unexpected decision: %+v", decision)
+	}
+}
+
+func TestDecisionSystemPromptConstrainsAmbiguousFollowupsToSelectedResources(t *testing.T) {
+	if !strings.Contains(decisionSystemPrompt, "selected_resources is an ordered durable scope") || !strings.Contains(decisionSystemPrompt, "ambiguous follow-up") {
+		t.Fatal("system prompt does not define durable follow-up scope")
 	}
 }
 

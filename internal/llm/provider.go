@@ -27,9 +27,23 @@ type Observation struct {
 	EvidenceRef string          `json:"evidence_ref"`
 }
 
+type SessionMessage struct {
+	Role    string `json:"role"`
+	Content string `json:"content"`
+}
+
+// SessionContext contains only bounded, operator-visible durable context. It
+// must never contain hidden model reasoning or privileged executor state.
+type SessionContext struct {
+	Summary           string           `json:"summary,omitempty"`
+	RecentMessages    []SessionMessage `json:"recent_messages,omitempty"`
+	SelectedResources []string         `json:"selected_resources,omitempty"`
+}
+
 type DecisionRequest struct {
 	Objective       string           `json:"objective"`
 	OriginalRequest string           `json:"original_request"`
+	SessionContext  *SessionContext  `json:"session_context,omitempty"`
 	Tools           []ToolCapability `json:"tools"`
 	Observations    []Observation    `json:"observations"`
 	Iteration       int              `json:"iteration"`

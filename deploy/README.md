@@ -51,3 +51,24 @@ sudo ./deploy/uninstall.sh
 ```
 
 Use `--purge-data` only when durable sessions, tasks, approvals, traces, quarantine manifests/files and Lab data may be permanently removed.
+
+The default uninstaller intentionally removes `/etc/safeops` as configuration while preserving `/var/lib/safeops` as durable data. If a later reinstall must retain the compatible-provider environment and the signing identity used by approval-bound envelopes, save only those two files in a root-only location before uninstall and restore them before reinstall:
+
+```bash
+sudo install -d -m 0700 -o root -g root /root/safeops-config-backup
+sudo install -m 0600 -o root -g root \
+  /etc/safeops/safeops.env /root/safeops-config-backup/safeops.env
+sudo install -m 0600 -o root -g root \
+  /etc/safeops/privexec.hmac /root/safeops-config-backup/privexec.hmac
+
+sudo ./deploy/uninstall.sh
+
+sudo install -d -m 0750 -o root -g safeops /etc/safeops
+sudo install -m 0640 -o root -g safeops \
+  /root/safeops-config-backup/safeops.env /etc/safeops/safeops.env
+sudo install -m 0400 -o safeops -g safeops \
+  /root/safeops-config-backup/privexec.hmac /etc/safeops/privexec.hmac
+sudo SAFEOPS_EXECUTOR_MODE=lab ./deploy/install.sh
+```
+
+Never copy either file into a user-readable evidence directory or commit it. Without this optional backup, reinstall creates a new HMAC and has no operator LLM configuration, which is the expected behavior after configuration removal.

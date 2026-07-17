@@ -26,6 +26,16 @@ The overall report result is `WARN` only because the target image does not insta
 
 Generated reports intentionally retain `target_verified=false`. That field prevents self-promotion by an unaudited target run. This document records the separate maintainer audit and does not alter the generated artifacts.
 
+## Complete MCP native-call follow-up
+
+Runtime commit `b5383e9` extended the target test from one representative memory call to a unique, individually time-bounded call for every discovered Tool. Its full release gates passed, the LoongArch64 archive SHA-256 was `380660f64e08936f3f0581f94400bf3cedc3b51916ec21ea82cf706971b32076`, and the exact bundle was installed before the final run.
+
+The first expanded target run exposed that the unquoted comma in the YAML `mcp-config` root argument left `/var/lib/safeops/lab/config` outside the effective allowlist. Issues #19 and #20 record the coverage gap and manifest defect. Both development and installed manifests now preserve `/etc/safeops,/var/lib/safeops/lab/config` as one argument, with a load-time regression test for each file.
+
+The installed `/opt/safeops/bin/targetctl` then ran as the non-root `safeops` identity against `/etc/safeops/mcp_servers.yaml`. Checksum-verified report `target_ae6d4bbeb9ae7b8e5764` recorded 8/8 healthy/pinged Servers, 39/39 discovered Tools, a unique 39/39 call plan and successful structured results for all 39 calls. This includes the previously discovery-only system, process, network, journal, service, diagnostic, file and configuration calls. The test uses its own PID for process identity, installed service/loopback targets, an existing bounded Lab file and a non-secret Lab configuration snapshot baseline. It records no successful tool payload or configuration content; errors are bounded and redact common credential forms.
+
+The report remains `WARN` solely for the same optional `git`/`go` command absence and intentionally retains `target_verified=false`. Maintainer audit of the release identity, report checksum and per-tool checks promotes all 39 matrix entries to `CALLED` without changing that self-protection field.
+
 ## Installed workflow evidence
 
 Every task below was read back from the target durable store and every exported Trace reported `VALID` integrity.
@@ -59,7 +69,7 @@ The port, CPU, disk and injection tasks were first executed on ancestor release 
 
 ## Status decisions and remaining gaps
 
-The audited native evidence promotes MCP discovery/runtime, general provider interaction, safety/approval/executor/rollback, evidence/RCA, hash Trace, port/CPU/disk/file workflows, and Kylin/LoongArch64 compatibility to `TARGET_VERIFIED`.
+The audited native evidence promotes all 39 MCP read-tool calls/runtime, general provider interaction, safety/approval/executor/rollback, evidence/RCA, hash Trace, port/CPU/disk/file workflows, and Kylin/LoongArch64 compatibility to `TARGET_VERIFIED`.
 
 Release/deployment is also `TARGET_VERIFIED` for checksum verification, install, start, health, repeated reinstall, default data-preserving uninstall and configuration-continuity restore. The uninstaller intentionally removes `/etc/safeops`; retaining provider and approval-signing identity requires the root-only procedure in `deploy/README.md`.
 

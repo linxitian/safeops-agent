@@ -48,6 +48,9 @@ jobs:
             exit 1
           fi
 
+      - name: Test installer environment preservation
+        run: ./scripts/test-install-env.sh
+
   go-packages:
     name: Go package tests and vet
     runs-on: ubuntu-latest

@@ -12,6 +12,9 @@ fi
 
 script_dir="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
 bundle_root="$(CDPATH= cd -- "$script_dir/.." && pwd)"
+[[ -f "$script_dir/install-env.sh" ]] || fail "installer environment helper is missing"
+# shellcheck source=install-env.sh
+source "$script_dir/install-env.sh"
 
 [[ -f "$bundle_root/VERSION" ]] || fail "bundle VERSION is missing"
 [[ -f "$bundle_root/SHA256SUMS" ]] || fail "bundle SHA256SUMS is missing"
@@ -26,7 +29,7 @@ esac
 
 [[ -d /run/systemd/system ]] || fail "systemd is not PID 1 or /run/systemd/system is unavailable"
 
-required_tools=(systemctl journalctl ss ip curl sha256sum getent groupadd useradd install chown chmod od tr cp find basename sleep)
+required_tools=(systemctl journalctl ss ip curl sha256sum getent groupadd useradd install chown chmod od tr cp find basename sleep mktemp mv rm)
 for tool in "${required_tools[@]}"; do
   command -v "$tool" >/dev/null 2>&1 || fail "required tool is missing: $tool"
 done
@@ -94,12 +97,7 @@ requested_mode="${SAFEOPS_EXECUTOR_MODE:-}"
 if [[ -n "$requested_mode" && "$requested_mode" != "dry-run" && "$requested_mode" != "lab" ]]; then
   fail "SAFEOPS_EXECUTOR_MODE must be dry-run or lab"
 fi
-if [[ -n "$requested_mode" || ! -f /etc/safeops/safeops.env ]]; then
-  [[ -n "$requested_mode" ]] || requested_mode=dry-run
-  printf 'SAFEOPS_EXECUTOR_MODE=%s\n' "$requested_mode" > /etc/safeops/safeops.env
-fi
-chown root:safeops /etc/safeops/safeops.env
-chmod 0640 /etc/safeops/safeops.env
+safeops_update_env /etc/safeops/safeops.env "$requested_mode" root safeops || fail "could not safely update /etc/safeops/safeops.env"
 
 install -m 0644 -o root -g root "$bundle_root/deploy/systemd/safeops-privexec.service" /etc/systemd/system/safeops-privexec.service
 install -m 0644 -o root -g root "$bundle_root/deploy/systemd/safeops-server.service" /etc/systemd/system/safeops-server.service

@@ -90,20 +90,33 @@ func (s *SettingsStore) Save(config Config, updatedAt time.Time) (StoredConfig, 
 	if err := os.Rename(name, s.path); err != nil {
 		return StoredConfig{}, err
 	}
-	if dirFile, err := os.Open(dir); err == nil {
-		_ = dirFile.Sync()
-		_ = dirFile.Close()
+	if err := syncDirectory(dir); err != nil {
+		return StoredConfig{}, err
 	}
 	return stored, nil
 }
 
 func (s *SettingsStore) Delete() error {
-	if err := os.Remove(s.path); err != nil && !errors.Is(err, os.ErrNotExist) {
+	if err := os.Remove(s.path); errors.Is(err, os.ErrNotExist) {
+		return nil
+	} else if err != nil {
 		return err
 	}
-	return nil
+	return syncDirectory(filepath.Dir(s.path))
 }
 
 func (c StoredConfig) Config() Config {
 	return Config{BaseURL: c.BaseURL, APIKey: c.APIKey, Model: c.Model}
+}
+
+func syncDirectory(directory string) error {
+	dir, err := os.Open(directory)
+	if err != nil {
+		return err
+	}
+	if err := dir.Sync(); err != nil {
+		_ = dir.Close()
+		return err
+	}
+	return dir.Close()
 }

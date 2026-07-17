@@ -1,12 +1,15 @@
 package api
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"safeops-agent/internal/llm"
 	"safeops-agent/internal/registry"
@@ -88,5 +91,70 @@ func TestLLMConfigAPIRejectsMissingSecretWithoutExistingConfig(t *testing.T) {
 	response := requestJSON(t, server.Handler(), http.MethodPut, "/api/v1/llm/config", map[string]any{"base_url": "https://llm.example/v1", "model": "model"})
 	if response.Code != http.StatusBadRequest {
 		t.Fatalf("missing secret returned %d %s", response.Code, response.Body.String())
+	}
+}
+
+func TestLLMConfigAPIMutationsUseTheTransactionLock(t *testing.T) {
+	fileStore, err := storage.NewFileStore(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	runtime := llm.NewRuntimeProvider()
+	settings := llm.NewSettingsStore(fileStore.Root() + "/state/llm_config.json")
+	server := New(fileStore, registry.New(registry.Config{}), nil, nil, WithLLM(runtime, settings))
+	handler := server.Handler()
+
+	putBody, err := json.Marshal(map[string]any{"base_url": "https://llm.example/v1", "api_key": "secret-key", "model": "ops-model"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	assertBlockedByConfigLock := func(method string, body []byte) *httptest.ResponseRecorder {
+		t.Helper()
+		server.llmConfigMu.Lock()
+		started := make(chan struct{})
+		completed := make(chan *httptest.ResponseRecorder, 1)
+		go func() {
+			close(started)
+			recorder := httptest.NewRecorder()
+			request := httptest.NewRequest(method, "/api/v1/llm/config", bytes.NewReader(body))
+			request.Header.Set("Content-Type", "application/json")
+			handler.ServeHTTP(recorder, request)
+			completed <- recorder
+		}()
+		<-started
+		select {
+		case recorder := <-completed:
+			server.llmConfigMu.Unlock()
+			t.Fatalf("%s mutation bypassed the LLM configuration transaction lock: %d %s", method, recorder.Code, recorder.Body.String())
+		case <-time.After(50 * time.Millisecond):
+		}
+		server.llmConfigMu.Unlock()
+		select {
+		case recorder := <-completed:
+			return recorder
+		case <-time.After(2 * time.Second):
+			t.Fatalf("%s mutation did not complete after releasing the LLM configuration transaction lock", method)
+			return nil
+		}
+	}
+
+	if response := assertBlockedByConfigLock(http.MethodPut, putBody); response.Code != http.StatusOK {
+		t.Fatalf("PUT returned %d %s", response.Code, response.Body.String())
+	}
+	if stored, err := settings.Load(); err != nil || stored.Model != "ops-model" {
+		t.Fatalf("persisted configuration is inconsistent after PUT: %+v, %v", stored, err)
+	}
+	if configured := runtime.Status(); !configured.Configured || configured.Model != "ops-model" {
+		t.Fatalf("runtime configuration is inconsistent after PUT: %+v", configured)
+	}
+
+	if response := assertBlockedByConfigLock(http.MethodDelete, nil); response.Code != http.StatusOK {
+		t.Fatalf("DELETE returned %d %s", response.Code, response.Body.String())
+	}
+	if _, err := settings.Load(); !errors.Is(err, llm.ErrNotConfigured) {
+		t.Fatalf("persisted configuration remained after DELETE: %v", err)
+	}
+	if configured := runtime.Status(); configured.Configured {
+		t.Fatalf("runtime configuration remained after DELETE: %+v", configured)
 	}
 }

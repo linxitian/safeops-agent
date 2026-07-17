@@ -12,6 +12,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"safeops-agent/internal/agent"
@@ -33,6 +34,7 @@ type Server struct {
 	approvals       *approval.Store
 	llmProvider     *llm.RuntimeProvider
 	llmSettings     *llm.SettingsStore
+	llmConfigMu     sync.Mutex
 	approvalResumer interface {
 		Resume(context.Context, approval.Record) (task.Task, error)
 	}
@@ -119,6 +121,8 @@ func (s *Server) putLLMConfig(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusServiceUnavailable, errors.New("LLM runtime configuration is not enabled"))
 		return
 	}
+	s.llmConfigMu.Lock()
+	defer s.llmConfigMu.Unlock()
 	var input struct {
 		BaseURL string `json:"base_url"`
 		APIKey  string `json:"api_key"`
@@ -161,6 +165,8 @@ func (s *Server) deleteLLMConfig(w http.ResponseWriter, _ *http.Request) {
 		writeError(w, http.StatusServiceUnavailable, errors.New("LLM runtime configuration is not enabled"))
 		return
 	}
+	s.llmConfigMu.Lock()
+	defer s.llmConfigMu.Unlock()
 	if err := s.llmSettings.Delete(); err != nil {
 		writeError(w, http.StatusInternalServerError, err)
 		return

@@ -70,22 +70,19 @@ func (o *Orchestrator) runGeneral(ctx context.Context, value task.Task, emit Eve
 			return value, err
 		}
 		originalDecision := decision
-		bootstrappedEvidence := false
-		decision, bootstrappedEvidence, err = requireEvidenceBeforeFinal(decision, value, capabilities)
-		if err != nil {
-			return value, err
-		}
+		replannedEarlyFinal := false
+		decision, replannedEarlyFinal = replanFinalWithoutEvidence(decision, value)
 		decisionRecord := map[string]any{"objective": value.Objective, "decision_kind": decision.Kind, "decision_summary": decision.DecisionSummary, "selected_server": decision.ServerID, "selected_tool": decision.Tool, "expected_observation": decision.ExpectedObservation}
-		if bootstrappedEvidence {
-			decisionRecord["local_guardrail"] = "converted_final_without_evidence_to_tool"
+		if replannedEarlyFinal {
+			decisionRecord["local_guardrail"] = "replanned_final_without_evidence"
 			decisionRecord["planner_original_kind"] = originalDecision.Kind
 			decisionRecord["planner_original_summary"] = originalDecision.DecisionSummary
 		}
 		if err := o.appendTrace(ctx, value, trace.DecisionRecorded, decisionRecord); err != nil {
 			return value, err
 		}
-		if bootstrappedEvidence {
-			emitEvent(emit, value, "模型过早给出结论，正在补充 MCP 证据")
+		if replannedEarlyFinal {
+			emitEvent(emit, value, "模型过早给出结论，正在要求重新规划相关 MCP 取证")
 		}
 
 		switch decision.Kind {
@@ -208,52 +205,14 @@ func (o *Orchestrator) runGeneral(ctx context.Context, value task.Task, emit Eve
 	}
 }
 
-func requireEvidenceBeforeFinal(decision llm.Decision, value task.Task, capabilities []llm.ToolCapability) (llm.Decision, bool, error) {
+func replanFinalWithoutEvidence(decision llm.Decision, value task.Task) (llm.Decision, bool) {
 	if decision.Kind != llm.DecisionFinal || (len(value.Runtime.Observations) > 0 && len(value.EvidenceRefs) > 0) {
-		return decision, false, nil
-	}
-	capability, ok := selectBootstrapEvidenceTool(capabilities)
-	if !ok {
-		return decision, false, errors.New("completion gate rejected a final answer without MCP evidence and no no-argument read tool is available for bootstrap evidence")
+		return decision, false
 	}
 	return llm.Decision{
-		Kind:                llm.DecisionTool,
-		DecisionSummary:     "模型在缺少 MCP 证据时尝试完成；本地安全门改为先采集只读系统证据",
-		ServerID:            capability.ServerID,
-		Tool:                capability.Name,
-		Arguments:           map[string]any{},
-		ExpectedObservation: "至少一条带 evidence_ref 的只读 MCP 结构化观察",
-	}, true, nil
-}
-
-func selectBootstrapEvidenceTool(capabilities []llm.ToolCapability) (llm.ToolCapability, bool) {
-	preferred := []string{
-		"system\x00system.get_overview",
-		"diagnostic\x00diagnostic.build_snapshot",
-		"system\x00system.get_load_average",
-		"system\x00system.get_memory_metrics",
-		"system\x00system.get_cpu_metrics",
-		"system\x00system.get_kernel_info",
-		"system\x00system.get_uptime",
-		"network\x00network.get_interfaces",
-	}
-	byID := map[string]llm.ToolCapability{}
-	for _, capability := range capabilities {
-		if validateToolArguments(capability.InputSchema, map[string]any{}) == nil {
-			byID[capability.ServerID+"\x00"+capability.Name] = capability
-		}
-	}
-	for _, key := range preferred {
-		if capability, ok := byID[key]; ok {
-			return capability, true
-		}
-	}
-	for _, capability := range capabilities {
-		if validateToolArguments(capability.InputSchema, map[string]any{}) == nil {
-			return capability, true
-		}
-	}
-	return llm.ToolCapability{}, false
+		Kind:            llm.DecisionReplan,
+		DecisionSummary: "模型在缺少 MCP 证据时尝试完成；必须根据用户目标重新规划并选择相关的已发现只读 MCP 工具",
+	}, true
 }
 
 func (o *Orchestrator) completeGeneral(ctx context.Context, value task.Task, answer string, emit EventSink) (task.Task, error) {

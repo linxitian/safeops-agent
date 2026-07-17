@@ -97,7 +97,7 @@ servers:
     description: 对受管理配置根生成有界哈希快照和差异且不返回正文
     transport: stdio
     command: /opt/safeops/bin/mcp-config
-    arguments: [--roots, /etc/safeops,/var/lib/safeops/lab/config]
+    arguments: [--roots, "/etc/safeops,/var/lib/safeops/lab/config"]
     enabled: true
     health_check: ping
     source: builtin

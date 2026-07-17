@@ -8,7 +8,7 @@ Updated: 2026-07-18
 |---|---:|---|
 | M0 Research/spec/matrices | IMPLEMENTED | Required management and seven research documents exist; empty baseline audit recorded |
 | M1 Platform/collectors | TESTED | Seven normalized Collectors cover proc/process, disk/directory/large-file, network, systemd, journal, system config/sysctl and allowlisted config changes; bounded partial batches, adapters, fixtures and real Linux smoke pass |
-| M2 MCP registry/tools | TARGET_VERIFIED | Official Kylin V11/loong64: native Registry initialized and pinged 8/8 servers, discovered 39/39 tools and returned a structured real `/proc` memory result |
+| M2 MCP registry/tools | TARGET_VERIFIED | Official Kylin V11/loong64: installed non-root Registry initialized/pinged 8/8 servers and completed one bounded structured call for each of 39/39 tools |
 | M3 First vertical slice | TESTED | Ubuntu: live HTTP/SSE run, real MCP `/proc` results, 22-event valid Trace, restart recovery |
 | M4 General Agent Runtime | TARGET_VERIFIED | Credentialed compatible-provider runs on official Kylin completed real MCP reads; merged release `1a10880` preserved bounded durable follow-up scope and enforced the two-minute Agent deadline |
 | M5 Guards/risk | TARGET_VERIFIED | Official target injection negative made no tool/approval/execution call; target write flows passed local policy, exact-target risk and independent approvals |
@@ -20,7 +20,7 @@ Updated: 2026-07-18
 | M11 Multi-turn file demo | TARGET_VERIFIED | Merged target release completed discovery, scoped recommendation, exact third-file quarantine and exact-record restore; all four Traces `VALID` and original file identity restored |
 | M12 CPU/disk remediation demos | TARGET_VERIFIED | Official target CPU task completed 7/7 and disk/log task 8/8 with fresh snapshots, approvals, post-verification and no physical-space-reclaimed overclaim |
 | M13 Full Chinese UI | TESTED | Six Chinese pages, conversation-first sidebar history, search/rename/archive, approval/result cards, RCA/audit projections, typed SSE replay/gap/snapshot sync, strict CSP, component navigation/unsafe-Markdown and serious accessibility checks pass |
-| M14 Target compatibility | TARGET_VERIFIED | Audited final-release reports identify Kylin V11/loong64, glibc 2.38 and systemd 255; 8/8 MCP and 39/39 tools pass, with WARN only for optional target `git`/`go` commands |
+| M14 Target compatibility | TARGET_VERIFIED | Audited reports identify Kylin V11/loong64, glibc 2.38 and systemd 255; 8/8 MCP discovery/ping and all 39 native tool calls pass, with WARN only for optional target `git`/`go` commands |
 | M15 Benchmarks | TESTED | Six `safeops-bench` suites, 16 measured metrics, fixed JSON/Markdown artifacts and full milestone gates pass on Ubuntu |
 | M16 Release/deploy | TARGET_VERIFIED | Target checksum/install/start/health/reinstall pass; default uninstall removed binaries/config/units while 140 durable file hashes and 153 metadata rows stayed identical, then root-only environment/HMAC restoration preserved continuity |
 
@@ -52,6 +52,8 @@ Updated: 2026-07-18
 - Added body-free JSONL runtime access logging under the server data directory for request method/path/status/duration/bytes metadata.
 - Added frontend component navigation, unsafe-Markdown escaping and automated serious/critical accessibility checks; static Web responses enforce a strict self-only CSP and related browser security headers.
 - Added and audited `targetctl` probe/test/report/doctor on the official Kylin V11/loong64 target. Generated reports correctly remain `target_verified=false`; the separate maintainer audit is recorded in `docs/target-verification-2026-07-18.md`.
+- Extended `targetctl test` with a unique, time-bounded official-SDK call for every discovered Tool, dynamic targetctl PID checks, non-secret Lab file/config fixtures, dependency capture, failure aggregation and redacted/bounded error details; successful payloads are not persisted.
+- Corrected the development and installed `mcp-config` manifests so the comma-separated `/etc/safeops,/var/lib/safeops/lab/config` value remains one argument; regression tests load both manifests and assert both allowlist roots.
 - Added `safeops-bench` with six suites, auditable case rows, 16 named metrics, `NOT_MEASURED` for unselected suites and fixed JSON/Markdown reports.
 - Added optional prebuilt-Web serving with SPA fallback and static/API isolation tests, so the installed server can deliver the Chinese console without an external Web server.
 - Added the M16 release pipeline, absolute installed MCP Manifest, hardened non-root server/root fixed-executor systemd units, checksum-verifying root installer and data-preserving uninstaller.
@@ -70,6 +72,7 @@ Updated: 2026-07-18
 | MCP in-memory initialize/list/call | PASS; 39 tools across eight domains |
 | MCP Registry lifecycle/list-change | PASS; enable, disable, rediscover and stable/change fingerprints |
 | MCP Registry compiled stdio initialize/discovery/ping | PASS; 8 healthy Servers, 39 discovered Tools |
+| Official Kylin installed Registry native calls | PASS; unique call plan and structured results for 39/39 Tools as non-root `safeops` |
 | SafeFS boundary/hash/config snapshot | PASS; traversal/symlink escape and size bounds tested |
 | Unified Collector batches | PASS; all seven required collectors, partial permission failure, timeout/output budgets, no config-body persistence, adapters and real Linux smoke |
 | Guard/approval/envelope/executor negatives | PASS; mismatch, injection, tamper, expiry, replay and target change denied |
@@ -80,8 +83,8 @@ Updated: 2026-07-18
 | Durable task concurrency/recovery | PASS; cross-store file locks, exclusive lease/fencing, expiry takeover, stale-write rejection and uncertain external action fail-closed |
 | Evidence/RCA/BM25 | PASS; graph stability, confidence components and retrieval provenance |
 | `safeops-bench all` | PASS; six suites and 16 measured metrics; report stores exact sample counts and methods |
-| Final target report checksums | PASS; probe `target_0f70b837d6ab5d7c72bd`, test `target_3ca1769f7eb00323a1d8`, doctor `target_d05c9711293c083a26c2` |
-| Official Kylin V11 native checks | PASS with bounded WARN; loong64/Kylin/glibc/systemd/proc/statfs and 8/8 MCP, 39/39 tools pass; only optional `git`/`go` commands absent |
+| Final target report checksums | PASS; original probe/test/doctor plus full-call test `target_ae6d4bbeb9ae7b8e5764` independently checksum-verified |
+| Official Kylin V11 native checks | PASS with bounded WARN; loong64/Kylin/glibc/systemd/proc/statfs, 8/8 MCP and 39/39 native Tool calls pass; only optional `git`/`go` commands absent |
 | Credentialed compatible-provider runs | PASS; real MCP evidence, final three-resource follow-up scope and provider-deadline failure persistence verified |
 | Installed port/CPU/disk/file workflows | PASS; 10/10, 7/7, 8/8 and final four-turn quarantine/restore flows completed with `VALID` Traces |
 | M16 release pipeline | PASS locally; tests/vet/frontend plus 16 amd64 and 16 loong64 commands, fixed tar.gz and outer SHA256 produced |
@@ -113,6 +116,7 @@ Request: `查看 CPU 和内存。`
 ## Competition matrix change
 
 - MCP registry/tools, the bounded general Agent, Guards/risk, fixed executor/approval/rollback, Evidence/RAG/RCA, complete Trace and durable context/resume are now `TARGET_VERIFIED` for their audited target paths.
+- Every one of the 39 MCP read Tools now has a successful official Kylin native structured-call check; no Tool remains discovery-only in the audited matrix.
 - Port, CPU, disk/log and multi-turn file Demos are now `TARGET_VERIFIED`; exact task and Trace identifiers are in `docs/target-verification-2026-07-18.md`.
 - Kylin V11/LoongArch64 compatibility and release/deployment are `TARGET_VERIFIED`; the documented root-only backup is required only when operator configuration and approval-signing identity must survive the intentional `/etc` removal.
 - OS depth perception and the six-page Chinese Web remain `TESTED`: native workflows cover their used paths, but not every Collector adapter or a systematic target-browser traversal.

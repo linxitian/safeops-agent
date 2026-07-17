@@ -5,12 +5,15 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"path/filepath"
 	"syscall"
 	"time"
 
 	"safeops-agent/contracts"
 	"safeops-agent/internal/platform"
 )
+
+const maxCreatedFileBytes = 64 << 10
 
 type ServiceRestartHandler struct {
 	Commands *platform.CommandPlatform
@@ -95,4 +98,77 @@ func (h ProcessTerminateHandler) Execute(ctx context.Context, envelope contracts
 		case <-ticker.C:
 		}
 	}
+}
+
+type FileCreateHandler struct{}
+
+func (FileCreateHandler) Execute(_ context.Context, envelope contracts.ActionEnvelope) (Result, error) {
+	if envelope.Proposal.Tool != "file.create" || envelope.TargetSnapshot.Type != "file" || !envelope.TargetSnapshot.ExpectAbsent || envelope.TargetSnapshot.CanonicalPath == "" {
+		return Result{}, errors.New("invalid file create envelope")
+	}
+	content, ok := envelope.Proposal.Arguments["content"].(string)
+	if !ok {
+		return Result{}, errors.New("file.create content must be a string")
+	}
+	if len([]byte(content)) > maxCreatedFileBytes {
+		return Result{}, errors.New("file.create content exceeds bounded size limit")
+	}
+	started := time.Now().UTC()
+	path := envelope.TargetSnapshot.CanonicalPath
+	file, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
+	if err != nil {
+		return Result{}, fmt.Errorf("create approved file: %w", err)
+	}
+	fail := func(cause error) (Result, error) {
+		if file != nil {
+			if err := file.Close(); err != nil {
+				cause = errors.Join(cause, fmt.Errorf("close failed create: %w", err))
+			}
+			file = nil
+		}
+		if err := os.Remove(path); err != nil && !errors.Is(err, os.ErrNotExist) {
+			cause = errors.Join(cause, fmt.Errorf("remove failed create: %w", err))
+		}
+		if err := syncDirectory(filepath.Dir(path)); err != nil {
+			cause = errors.Join(cause, fmt.Errorf("sync rollback parent: %w", err))
+		}
+		return Result{}, cause
+	}
+	if written, err := file.WriteString(content); err != nil {
+		return fail(fmt.Errorf("write approved file: %w", err))
+	} else if written != len(content) {
+		return fail(fmt.Errorf("write approved file: %w", errors.New("short write")))
+	}
+	if err := file.Sync(); err != nil {
+		return fail(fmt.Errorf("sync approved file: %w", err))
+	}
+	if err := file.Close(); err != nil {
+		file = nil
+		return fail(fmt.Errorf("close approved file: %w", err))
+	}
+	file = nil
+	if err := syncDirectory(filepath.Dir(path)); err != nil {
+		return fail(fmt.Errorf("sync file parent: %w", err))
+	}
+	info, err := os.Lstat(path)
+	if err != nil {
+		return fail(fmt.Errorf("verify created file: %w", err))
+	}
+	if !info.Mode().IsRegular() || info.Size() != int64(len([]byte(content))) || info.Mode().Perm()&0o077 != 0 {
+		return fail(fmt.Errorf("created file verification failed: mode=%s size=%d", info.Mode(), info.Size()))
+	}
+	evidence := map[string]string{"path": path, "bytes": fmt.Sprint(info.Size()), "mode": info.Mode().String(), "rollback_strategy": envelope.Proposal.RollbackStrategy}
+	return Result{Tool: envelope.Proposal.Tool, Mode: LabSandbox, Status: "SUCCEEDED", Message: "allowlisted file created and verified", ActionID: envelope.Proposal.ProposalID, Changed: true, Verification: &Verification{Verified: true, Checks: []string{"target absence and parent snapshot revalidated", "O_EXCL create used fixed 0600 mode", "created file metadata verified"}, Evidence: evidence}, StartedAt: started, FinishedAt: time.Now().UTC()}, nil
+}
+
+func syncDirectory(directory string) error {
+	dir, err := os.Open(directory)
+	if err != nil {
+		return err
+	}
+	if err := dir.Sync(); err != nil {
+		_ = dir.Close()
+		return err
+	}
+	return dir.Close()
 }

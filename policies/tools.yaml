@@ -81,6 +81,20 @@ tools:
     reversible: true
     allowed_target_types: [file]
     rule_id: file-restore
+  - name: file.create
+    effect: write
+    base_risk: L1
+    approval: true
+    reversible: true
+    allowed_target_types: [file]
+    rule_id: file-create
+  - name: file.delete
+    effect: write
+    base_risk: L1
+    approval: true
+    reversible: true
+    allowed_target_types: [file]
+    rule_id: file-delete-reversible
   - name: file.purge_quarantine
     effect: write
     base_risk: L3

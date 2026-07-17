@@ -135,3 +135,7 @@ func (fakeDiskWorkflowTargets) SnapshotService(_ context.Context, targetID, unit
 func (fakeDiskWorkflowTargets) SnapshotFile(_ context.Context, targetID, path string) (contracts.TargetSnapshot, error) {
 	return contracts.TargetSnapshot{Type: "file", ID: targetID, CanonicalPath: path, Size: 5 << 20, MTimeUnixNano: 10, Mode: 0o100600, Inode: 99}, nil
 }
+
+func (fakeDiskWorkflowTargets) SnapshotNewFile(_ context.Context, targetID, path string) (contracts.TargetSnapshot, error) {
+	return contracts.TargetSnapshot{Type: "file", ID: targetID, CanonicalPath: path, ExpectAbsent: true, ParentPath: "/lab", ParentInode: 99}, nil
+}

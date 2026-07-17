@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"os"
+	"path/filepath"
 	"syscall"
 	"testing"
 	"time"
@@ -11,6 +12,28 @@ import (
 	"safeops-agent/contracts"
 	"safeops-agent/internal/platform"
 )
+
+func TestFileCreateRequiresStringContentAndLeavesNoFile(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "created.txt")
+	handler := FileCreateHandler{}
+	for name, arguments := range map[string]map[string]any{
+		"missing": {},
+		"number":  {"content": 42},
+	} {
+		t.Run(name, func(t *testing.T) {
+			envelope := contracts.ActionEnvelope{
+				Proposal:       contracts.ActionProposal{Tool: "file.create", Arguments: arguments},
+				TargetSnapshot: contracts.TargetSnapshot{Type: "file", CanonicalPath: path, ExpectAbsent: true},
+			}
+			if _, err := handler.Execute(context.Background(), envelope); err == nil {
+				t.Fatal("invalid file content was accepted")
+			}
+			if _, err := os.Lstat(path); !errors.Is(err, os.ErrNotExist) {
+				t.Fatalf("invalid create left a file behind: %v", err)
+			}
+		})
+	}
+}
 
 func TestServiceRestartUsesSnapshotUnitAndVerifies(t *testing.T) {
 	runner := &handlerRunner{outputs: [][]byte{

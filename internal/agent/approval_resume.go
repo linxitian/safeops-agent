@@ -189,7 +189,7 @@ func (r ApprovalResumer) completeSession(ctx context.Context, value task.Task, e
 }
 
 func (r ApprovalResumer) persistActionContext(ctx context.Context, value task.Task, envelope contracts.ActionEnvelope, result executor.Result) error {
-	if result.Mode != executor.LabSandbox || (envelope.Proposal.Tool != "file.quarantine" && envelope.Proposal.Tool != "file.restore_quarantine") {
+	if result.Mode != executor.LabSandbox || (envelope.Proposal.Tool != "file.quarantine" && envelope.Proposal.Tool != "file.delete" && envelope.Proposal.Tool != "file.restore_quarantine") {
 		return nil
 	}
 	evidence := result.Verification.Evidence
@@ -201,7 +201,7 @@ func (r ApprovalResumer) persistActionContext(ctx context.Context, value task.Ta
 			s.PinnedContext = map[string]string{}
 		}
 		switch envelope.Proposal.Tool {
-		case "file.quarantine":
+		case "file.quarantine", "file.delete":
 			if original == "" || quarantined == "" || quarantineID == "" || original != envelope.TargetSnapshot.CanonicalPath {
 				return errors.New("verified quarantine evidence does not match the approved target")
 			}

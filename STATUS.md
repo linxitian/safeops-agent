@@ -1,6 +1,6 @@
 # Project Status
 
-Updated: 2026-07-16
+Updated: 2026-07-17
 
 ## Milestone status
 
@@ -12,14 +12,14 @@ Updated: 2026-07-16
 | M3 First vertical slice | TESTED | Ubuntu: live HTTP/SSE run, real MCP `/proc` results, 22-event valid Trace, restart recovery |
 | M4 General Agent Runtime | PARTIAL | OpenAI-compatible structured provider and bounded ReAct/replan runtime are tested with contract fakes; no credentialed provider run |
 | M5 Guards/risk | TESTED | Local policy, Static/Intent Guard, contextual L0-L3 risk and injection/mismatch/critical-target cases pass |
-| M6 Executor/approval/rollback | TESTED | Signed envelopes, durable approvals, auto-resume, replay/scope/target checks and real Lab quarantine/restore plus fixed service/process handlers pass Ubuntu tests |
+| M6 Executor/approval/rollback | TESTED | Signed envelopes, durable approvals, auto-resume, replay/scope/target checks and real Lab quarantine/restore/create/delete plus fixed service/process handlers pass Ubuntu tests |
 | M7 Evidence/RAG/RCA | TESTED | Deterministic graph, BM25 provenance and port/high-CPU/disk D1-D3 diagnostic protocol tests pass; required end-user demos remain partial |
 | M8 Complete trace | TESTED | Exact lifecycle events, complete DecisionRecord, recursive secret/CoT redaction, concurrent append, crash-tail reconciliation and tamper/delete/reorder rejection pass |
 | M9 Port-conflict demo | PARTIAL | Tested 10-step backend state machine performs five real read tools, D1/RAG, separately approved process termination/service restart, and service/port/HTTP verification; installed live-system run remains absent |
 | M10 Full durable context/resume | TESTED | Cross-process locks, atomic Session mutation, Task lease/fencing, checkpoints, safe startup resume, uncertain-write fail-closed recovery and session search/rename/archive pass |
 | M11 Multi-turn file demo | PARTIAL | Selected-resource capture, ordinal resolution, approval-bound quarantine/restore and context cleanup pass backend tests; full live chat/UI demo pending |
 | M12 CPU/disk remediation demos | PARTIAL | Tested backend state machines bind exact process/file targets, preserve pre/post evidence, reject false CPU recovery, and honestly distinguish quarantine from physical disk reclamation; installed live-system runs remain absent |
-| M13 Full Chinese UI | TESTED | Six Chinese pages, search/rename/archive, approval/result cards, RCA/audit projections, typed SSE replay/gap/snapshot sync, strict CSP, component navigation/unsafe-Markdown and serious accessibility checks pass |
+| M13 Full Chinese UI | TESTED | Six Chinese pages, conversation-first sidebar history, search/rename/archive, approval/result cards, RCA/audit projections, typed SSE replay/gap/snapshot sync, strict CSP, component navigation/unsafe-Markdown and serious accessibility checks pass |
 | M14 Target compatibility | PARTIAL | `targetctl` probe/test/report/doctor and fixed reports pass locally; linux/loong64 build passes; official VM untested |
 | M15 Benchmarks | TESTED | Six `safeops-bench` suites, 16 measured metrics, fixed JSON/Markdown artifacts and full milestone gates pass on Ubuntu |
 | M16 Release/deploy | PARTIAL | Full release gate created the required LoongArch64 tar/SHA256, verified 39 bundle files and six staged systemd units; target root install/start/health/uninstall remain untested |
@@ -42,12 +42,13 @@ Updated: 2026-07-16
 - Implemented deterministic Evidence Graph, D1-D3 RCA confidence formula and pure-Go BM25 knowledge retrieval with source/score/matched-term provenance; connected it to port-conflict diagnosis.
 - Added an OpenAI-compatible structured-output Provider and a bounded general Agent loop with discovered-schema validation, Tool Result re-entry, 12-iteration/30-call limits, replan bounds and no-progress detection.
 - Added approval resolve APIs and automatic Task resume through EXECUTING/VERIFYING, including server-start recovery of resolved approvals.
-- Added real allowlisted Lab handlers for atomic file quarantine/restore, fixed service restart and fixed SIGTERM process termination; permanent purge and arbitrary command execution remain unavailable.
-- Added selected-resource persistence, ordinal/pronoun resolution and a tested two-turn quarantine then restore flow with post-action context cleanup.
+- Added real allowlisted Lab handlers for atomic file quarantine/restore, reversible delete-by-quarantine, fixed-size file creation, fixed service restart and fixed SIGTERM process termination; permanent purge and arbitrary command execution remain unavailable.
+- Added selected-resource persistence, ordinal/pronoun resolution, direct allowlisted file path handling, and tested file create/delete/quarantine/restore flows with post-action context cleanup.
 - Added controlled port-holder, demo-Web, CPU-hog and bounded log-writer programs plus hardened Lab units.
 - Added fixed Lab-only port recovery, CPU recovery and disk/log-growth Agent state machines. Each persists evidence across approval, binds fresh target snapshots, automatically resumes after separately scoped approvals and verifies explicit completion gates.
 - Added Chinese exact-target approval cards with risk level/reasons/factors, reversibility, expiry and target digest; approve/reject confirmation can continue through multiple approvals, and the task view projects recent Trace integrity/evidence.
-- Added source-backed Chinese Overview, Tool, Safety, RCA and Audit pages; session search/rename/archive/restore; typed SSE IDs with duplicate suppression, bounded replay and durable gap/snapshot recovery.
+- Added source-backed Chinese Overview, Tool, Safety, RCA and Audit pages; conversation-first sidebar history, session search/rename/archive/restore; typed SSE IDs with duplicate suppression, bounded replay and durable gap/snapshot recovery.
+- Added body-free JSONL runtime access logging under the server data directory for request method/path/status/duration/bytes metadata.
 - Added frontend component navigation, unsafe-Markdown escaping and automated serious/critical accessibility checks; static Web responses enforce a strict self-only CSP and related browser security headers.
 - Added `targetctl` read-only probe/test/report/doctor with fixed probe/test JSON and text reports; local evidence remains `target_verified=false`.
 - Added `safeops-bench` with six suites, auditable case rows, 16 named metrics, `NOT_MEASURED` for unselected suites and fixed JSON/Markdown reports.
@@ -71,7 +72,7 @@ Updated: 2026-07-16
 | SafeFS boundary/hash/config snapshot | PASS; traversal/symlink escape and size bounds tested |
 | Unified Collector batches | PASS; all seven required collectors, partial permission failure, timeout/output budgets, no config-body persistence, adapters and real Linux smoke |
 | Guard/approval/envelope/executor negatives | PASS; mismatch, injection, tamper, expiry, replay and target change denied |
-| Approval resume and real Lab rollback | PASS; approved/rejected/failure/restart recovery plus three real quarantine/restore cycles |
+| Approval resume and real Lab rollback | PASS; approved/rejected/failure/restart recovery plus real quarantine/restore/create/delete cycles |
 | Port recovery state machine | PASS; 10/10 plan, five read tools, D1/RAG, L2 process approval, separate L1 restart approval and HTTP verification |
 | CPU recovery state machine | PASS; exact process identity, persisted baseline, post-action process/CPU verification and no false success when recovery is insufficient |
 | Disk/log-growth state machine | PASS; fresh post-stop file snapshot, separate L2/L1 approvals, quarantine verification and no physical-space-reclaimed overclaim |
@@ -87,7 +88,7 @@ Updated: 2026-07-16
 | Restart restores completed Session/Task/Trace | PASS |
 | Complete Trace audit | PASS; 48 concurrent appends, exact lifecycle events, DecisionRecord fields, redaction, crash full/partial tail recovery and modification/delete/reorder rejection |
 | Typed SSE recovery | PASS; monotonic IDs, recent replay, duplicate suppression, truncation/restart gap plus durable Task/Trace resync |
-| Chinese Web component/accessibility | PASS; all six pages, source-backed projections, unsafe Markdown escaping and no serious/critical automated violations |
+| Chinese Web component/accessibility | PASS; all six pages, conversation-first sidebar history, source-backed projections, unsafe Markdown escaping and no serious/critical automated violations |
 | Official Kylin VM runtime | NOT_TESTED |
 | `make` entry points on current host | NOT_RUN; `make` is absent, exact equivalent commands passed |
 | Race detector | NOT_RUN; conflicts with default `CGO_ENABLED=0` and was not used as evidence |
@@ -114,7 +115,7 @@ Request: `查看 CPU 和内存。`
 - Reasoning-chain traceability: `PARTIAL` → `TESTED` for the complete local lifecycle, redaction, concurrency, crash recovery and audit projection.
 - Chinese Web UI: `PARTIAL` → `TESTED` for six pages, session lifecycle, approval/result cards, resilient SSE and component/accessibility checks; installed target Demos remain separate `PARTIAL` rows.
 - Port, CPU and disk/log Agent backends now have tested bounded recovery state machines; their matrix rows remain `PARTIAL` until controlled services are installed and the real live/API/UI paths are exercised.
-- Multi-turn file flow remains `PARTIAL`: the backend ordinal/quarantine/restore chain and approval card are tested/built, but the live UI Demo is not complete.
+- Multi-turn file flow remains `PARTIAL`: the backend ordinal/create/delete/quarantine/restore chain and approval card are tested/built, but the live UI Demo is not complete.
 - Target tooling: `NOT_STARTED` → `PARTIAL`; local native reports and cross-build exist, but official Kylin remains `NOT_TESTED`.
 - Benchmark/evaluation: `NOT_STARTED` → `TESTED`; all six suites and 16 metrics have current local reports.
 - Release/deployment: `NOT_STARTED` → `PARTIAL`; release and staged-unit evidence pass locally, while target root install/start/health/uninstall remain untested.
@@ -123,7 +124,7 @@ Request: `查看 CPU 和内存。`
 
 One end-user scenario is complete on Ubuntu: create/load a Chinese Web Session, ask for CPU and memory, observe a two-step real MCP task and SSE progress, receive a Chinese answer, refresh/restart, and inspect a valid hash-chained Trace.
 
-Controlled Lab components can reproduce a real loopback port collision, bounded CPU pressure and bounded log growth. Automated backend tests now run the bounded port, CPU and disk remediation plans across durable approvals and completion gates, and the multi-turn file test performs approval-bound quarantine and restoration. These are tested backend scenarios, not yet complete end-user competition Demos: the controlled units have not been installed and exercised through the live API/UI on the target.
+Controlled Lab components can reproduce a real loopback port collision, bounded CPU pressure and bounded log growth. Automated backend tests now run the bounded port, CPU and disk remediation plans across durable approvals and completion gates, and the file workflow tests perform approval-bound creation, reversible deletion, quarantine and restoration. These are tested backend scenarios, not yet complete end-user competition Demos: the controlled units have not been installed and exercised through the live API/UI on the target.
 
 ## Real blockers
 

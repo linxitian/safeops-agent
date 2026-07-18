@@ -275,16 +275,26 @@ func TestParseCreateFileRequestCombinesFilenameDirectoryAndToday(t *testing.T) {
 	}
 }
 
-func TestParseCreateFileRequestSplitsJoinedChineseActionAndFilename(t *testing.T) {
-	target, content, err := parseCreateFileRequestAt("在/var/lib/safeops/lab/test创建文件1.txt", time.Now())
+func TestParseCreateFileRequestPreservesMarkerPrefixedExplicitPath(t *testing.T) {
+	target, content, err := parseCreateFileRequestAt("创建 /var/lib/safeops/lab/创建文件1.txt", time.Now())
 	if err != nil {
 		t.Fatal(err)
 	}
-	if target != "/var/lib/safeops/lab/test/1.txt" {
+	if target != "/var/lib/safeops/lab/创建文件1.txt" {
 		t.Fatalf("unexpected target path: %q", target)
 	}
 	if content != "" {
 		t.Fatalf("unexpected content: %q", content)
+	}
+}
+
+func TestResolveFileActionTargetPreservesActionMarkerFilename(t *testing.T) {
+	target, index, source, err := resolveFileActionTarget("请删除 /var/lib/safeops/lab/删除foo.txt", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if target != "/var/lib/safeops/lab/删除foo.txt" || index != -1 || source != "request.path" {
+		t.Fatalf("explicit marker-prefixed path was rewritten: %q %d %q", target, index, source)
 	}
 }
 

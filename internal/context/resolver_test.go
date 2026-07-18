@@ -19,7 +19,7 @@ func TestResolveResourceOrdinal(t *testing.T) {
 	if got, _, err := ResolveResource("删除该文件", []string{"/lab/new.txt"}); err != nil || got != "/lab/new.txt" {
 		t.Fatalf("single resource pronoun did not resolve: %q %v", got, err)
 	}
-	if got, index, err := ResolveResource("删除该文件", []string{"/lab/old.txt", "/lab/new.txt"}); err != nil || got != "/lab/new.txt" || index != 1 {
-		t.Fatalf("current resource pronoun did not select latest resource: %q %d %v", got, index, err)
+	if _, _, err := ResolveResource("删除该文件", []string{"/lab/old.txt", "/lab/new.txt"}); err == nil {
+		t.Fatal("ambiguous pronoun selected one of multiple resources")
 	}
 }

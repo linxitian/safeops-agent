@@ -29,8 +29,8 @@ func ResolveResource(reference string, resources []string) (string, int, error) 
 	if strings.Contains(normalized, "最后一个") || strings.Contains(normalized, "最后一项") {
 		index = len(resources) - 1
 	}
-	if index == -1 && hasCurrentResourcePronoun(normalized) {
-		index = len(resources) - 1
+	if index == -1 && len(resources) == 1 && hasCurrentResourcePronoun(normalized) {
+		index = 0
 	}
 	if index < 0 {
 		return "", -1, errors.New("resource reference is ambiguous; use an explicit ordinal")

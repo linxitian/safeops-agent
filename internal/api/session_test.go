@@ -98,7 +98,7 @@ func TestOverviewAndTaskListUseDurableState(t *testing.T) {
 	server := New(store, registry.New(registry.Config{}), nil, nil)
 	overview := httptest.NewRecorder()
 	server.Handler().ServeHTTP(overview, httptest.NewRequest(http.MethodGet, "/api/v1/overview", nil))
-	if overview.Code != http.StatusOK || !bytes.Contains(overview.Body.Bytes(), []byte(`"COMPLETED":1`)) || !bytes.Contains(overview.Body.Bytes(), []byte(`"active":1`)) {
+	if overview.Code != http.StatusOK || !bytes.Contains(overview.Body.Bytes(), []byte(`"COMPLETED":1`)) || !bytes.Contains(overview.Body.Bytes(), []byte(`"active":1`)) || !bytes.Contains(overview.Body.Bytes(), []byte(`"system":`)) {
 		t.Fatalf("overview returned %d %s", overview.Code, overview.Body.String())
 	}
 	tasks := httptest.NewRecorder()

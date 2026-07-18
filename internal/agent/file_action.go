@@ -161,33 +161,12 @@ func filePathFromRequest(request string) string {
 	if path == "" {
 		return ""
 	}
-	if combined := splitJoinedActionPath(path); combined != "" {
-		return combined
-	}
 	if filepath.Ext(filepath.Base(path)) == "" {
 		if filename := firstPlainFilename(request); filename != "" {
 			return filepath.Join(path, filename)
 		}
 	}
 	return path
-}
-
-func splitJoinedActionPath(path string) string {
-	markers := []string{"创建文件", "新建文件", "删除文件", "隔离文件", "恢复文件", "创建", "新建", "删除", "隔离", "恢复"}
-	for _, marker := range markers {
-		index := strings.LastIndex(path, marker)
-		if index <= 0 {
-			continue
-		}
-		directory := path[:index]
-		if directory == "" || filepath.Ext(filepath.Base(directory)) != "" {
-			continue
-		}
-		if filename := firstPlainFilename(path[index+len(marker):]); filename != "" {
-			return filepath.Join(directory, filename)
-		}
-	}
-	return ""
 }
 
 func parseCreateFileContent(request string, now time.Time) string {

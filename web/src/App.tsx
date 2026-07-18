@@ -106,6 +106,7 @@ const knownReasonSummary = (value?: string) => {
 }
 const actionSuccessSummary = (value?: string) => {
   const clean = cleanEvidenceNoise(value)
+  if (!/(?:完成并验证|已执行并验证)/.test(clean)) return ''
   if (/file\.create/.test(clean)) return '任务成功：文件已创建，并已通过最小权限执行器验证。'
   if (/file\.delete/.test(clean)) return '任务成功：文件已删除，并已通过最小权限执行器验证。'
   if (/file\.quarantine/.test(clean)) return '任务成功：文件已隔离，并已通过最小权限执行器验证。'
@@ -127,11 +128,11 @@ const containsMostlyEnglish = (value: string) => {
 }
 const simplifyAssistantReply = (content: string) => {
   const clean = cleanEvidenceNoise(content)
-  const success = actionSuccessSummary(clean)
-  if (success) return success
   const reason = knownReasonSummary(clean)
   if (/任务失败|任务已安全结束/i.test(clean)) return `任务失败：${reason || firstReadableChineseSentence(clean) || '任务已安全结束，具体原因可在审计追踪中查看。'}`
   if (/cannot complete|无法完成|不能完成|未执行|outside all allowlisted|not in the allowlisted|without any compression|read-only file tools/i.test(clean)) return `任务完成：已完成受限调查，但目标操作未执行。\n原因：${reason || '当前安全边界或工具能力不满足本次操作。'}`
+  const success = actionSuccessSummary(clean)
+  if (success) return success
   if (/任务完成|完成条件已满足/i.test(clean) && reason) return `任务完成：${reason}`
   if (containsMostlyEnglish(clean)) return reason ? `任务完成：${reason}` : '任务完成：Agent 已返回结果，原始证据细节可在审计追踪中查看。'
   return content

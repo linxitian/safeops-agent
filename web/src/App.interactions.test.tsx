@@ -259,6 +259,21 @@ describe('SafeOps UI interactions', () => {
     expect(text).not.toMatch(/sha256|Trace VALID|I cannot complete|allowlisted roots/)
   })
 
+  it('does not present a failed action mention as a successful execution', async () => {
+    setupAPI({ completedReply: '任务失败：file.create 执行失败：permission denied' })
+    const user = userEvent.setup()
+    const { container } = render(<App />)
+
+    await screen.findByRole('heading', { name: '测试会话' })
+    await user.type(screen.getByLabelText('描述希望调查的系统问题'), '创建测试文件')
+    await user.click(screen.getByRole('button', { name: '发送' }))
+    await waitFor(() => expect(MockEventSource.instances).toHaveLength(1))
+    MockEventSource.instances[0].emit('task.progress', { sequence: 1, type: 'task.progress', task_id: 'task-new', state: 'COMPLETED', message: '任务完成', timestamp: '2026-07-16T01:03:00Z' })
+
+    await waitFor(() => expect(container.querySelector('.message.assistant .markdown')?.textContent).toContain('任务失败'))
+    expect(container.querySelector('.message.assistant .markdown')?.textContent).not.toContain('任务成功')
+  })
+
   it('rolls back the optimistic question when message creation fails', async () => {
     setupAPI({ messageFailure: true })
     const user = userEvent.setup()

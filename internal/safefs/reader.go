@@ -12,11 +12,14 @@ import (
 	"sort"
 	"strings"
 	"time"
+
+	"golang.org/x/sys/unix"
 )
 
 const (
 	DefaultHashLimit  int64 = 16 << 20
 	DefaultTotalLimit int64 = 32 << 20
+	maxSnapshotDepth        = 64
 )
 
 type Metadata struct {
@@ -64,69 +67,88 @@ type DirectoryUsage struct {
 	Truncated   bool   `json:"truncated"`
 }
 
-type Reader struct{ roots []string }
+type Reader struct{ roots []allowedRoot }
 
 func NewReader(roots ...string) (*Reader, error) {
 	if len(roots) == 0 {
 		return nil, errors.New("at least one allowlisted root is required")
 	}
 	seen := map[string]bool{}
-	cleaned := make([]string, 0, len(roots))
+	cleaned := make([]allowedRoot, 0, len(roots))
+	closeRoots := func() {
+		for _, root := range cleaned {
+			_ = unix.Close(root.fd)
+		}
+	}
 	for _, root := range roots {
 		root = filepath.Clean(strings.TrimSpace(root))
 		if root == "." || !filepath.IsAbs(root) {
+			closeRoots()
 			return nil, fmt.Errorf("allowlisted root must be absolute: %q", root)
 		}
 		if root == string(filepath.Separator) {
+			closeRoots()
 			return nil, errors.New("filesystem root cannot be allowlisted")
 		}
+		canonical, err := filepath.EvalSymlinks(root)
+		if err != nil {
+			closeRoots()
+			return nil, fmt.Errorf("resolve allowlisted root %s: %w", root, err)
+		}
+		info, err := os.Stat(canonical)
+		if err != nil {
+			closeRoots()
+			return nil, fmt.Errorf("stat allowlisted root %s: %w", root, err)
+		}
+		if !info.IsDir() && !info.Mode().IsRegular() {
+			closeRoots()
+			return nil, fmt.Errorf("allowlisted root must be a directory or regular file: %s", root)
+		}
 		if !seen[root] {
+			fd, err := unix.Open(canonical, unix.O_PATH|unix.O_CLOEXEC|unix.O_NOFOLLOW, 0)
+			if err != nil {
+				closeRoots()
+				return nil, fmt.Errorf("open allowlisted root %s: %w", root, err)
+			}
 			seen[root] = true
-			cleaned = append(cleaned, root)
+			cleaned = append(cleaned, allowedRoot{display: root, canonical: canonical, fd: fd})
 		}
 	}
-	sort.Strings(cleaned)
+	sort.Slice(cleaned, func(i, j int) bool { return cleaned[i].display < cleaned[j].display })
 	return &Reader{roots: cleaned}, nil
 }
 
-func (r *Reader) Roots() []string { return append([]string(nil), r.roots...) }
-
-func (r *Reader) Resolve(path string) (string, error) {
-	path = filepath.Clean(strings.TrimSpace(path))
-	if !filepath.IsAbs(path) {
-		return "", errors.New("path must be absolute")
-	}
+func (r *Reader) Roots() []string {
+	values := make([]string, 0, len(r.roots))
 	for _, root := range r.roots {
-		if !within(root, path) {
-			continue
-		}
-		resolvedRoot, err := filepath.EvalSymlinks(root)
-		if err != nil {
-			return "", fmt.Errorf("resolve allowlisted root %s: %w", root, err)
-		}
-		resolvedPath, err := filepath.EvalSymlinks(path)
-		if err != nil {
-			return "", fmt.Errorf("resolve path %s: %w", path, err)
-		}
-		if !within(resolvedRoot, resolvedPath) {
-			return "", errors.New("path escapes allowlisted root through symlink")
-		}
-		return resolvedPath, nil
+		values = append(values, root.display)
 	}
-	return "", errors.New("path is outside all allowlisted roots")
+	return values
 }
 
-func within(root, path string) bool {
-	rel, err := filepath.Rel(root, path)
-	return err == nil && rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator))
+func (r *Reader) Resolve(path string) (string, error) {
+	file, err := r.openPath(path, unix.O_PATH)
+	if err != nil {
+		return "", err
+	}
+	defer file.Close()
+	resolved, err := os.Readlink(fmt.Sprintf("/proc/self/fd/%d", file.Fd()))
+	if err != nil {
+		return "", err
+	}
+	return resolved, nil
 }
 
 func (r *Reader) Metadata(ctx context.Context, path string) (Metadata, error) {
-	resolved, err := r.resolveContext(ctx, path)
+	if err := ctx.Err(); err != nil {
+		return Metadata{}, err
+	}
+	file, err := r.openPath(path, unix.O_PATH)
 	if err != nil {
 		return Metadata{}, err
 	}
-	info, err := os.Stat(resolved)
+	defer file.Close()
+	info, err := file.Stat()
 	if err != nil {
 		return Metadata{}, err
 	}
@@ -140,28 +162,42 @@ func (r *Reader) List(ctx context.Context, path string, limit int) ([]Metadata, 
 	if limit > 500 {
 		return nil, false, errors.New("limit must not exceed 500")
 	}
-	resolved, err := r.resolveContext(ctx, path)
+	if err := ctx.Err(); err != nil {
+		return nil, false, err
+	}
+	pathFile, err := r.openPath(path, unix.O_PATH)
 	if err != nil {
 		return nil, false, err
 	}
-	entries, err := os.ReadDir(resolved)
+	defer pathFile.Close()
+	info, err := pathFile.Stat()
 	if err != nil {
 		return nil, false, err
 	}
-	truncated := len(entries) > limit
-	if len(entries) > limit {
-		entries = entries[:limit]
+	if !info.IsDir() {
+		return nil, false, errors.New("path is not a directory")
 	}
-	out := make([]Metadata, 0, len(entries))
-	for _, entry := range entries {
-		if err := ctx.Err(); err != nil {
-			return nil, false, err
+	directory, err := reopenPathFile(pathFile, unix.O_RDONLY|unix.O_DIRECTORY)
+	if err != nil {
+		return nil, false, err
+	}
+	defer directory.Close()
+	var out []Metadata
+	truncated := false
+	err = walkDirectory(ctx, directory, "", 0, func(relative string, _ int, _ *os.File, info os.FileInfo, symlink bool) (bool, bool, error) {
+		if len(out) >= limit {
+			truncated = true
+			return false, true, nil
 		}
-		info, err := entry.Info()
-		if err != nil {
-			return nil, false, err
+		if symlink {
+			out = append(out, Metadata{Path: filepath.Join(path, relative), Name: filepath.Base(relative), Mode: os.ModeSymlink.String()})
+			return false, false, nil
 		}
-		out = append(out, metadata(filepath.Join(path, entry.Name()), info))
+		out = append(out, metadata(filepath.Join(path, relative), info))
+		return false, false, nil
+	})
+	if err != nil {
+		return nil, false, err
 	}
 	return out, truncated, nil
 }
@@ -173,11 +209,15 @@ func (r *Reader) Hash(ctx context.Context, path string, maxBytes int64) (FileHas
 	if maxBytes > DefaultHashLimit {
 		return FileHash{}, fmt.Errorf("max_bytes must not exceed %d", DefaultHashLimit)
 	}
-	resolved, err := r.resolveContext(ctx, path)
+	if err := ctx.Err(); err != nil {
+		return FileHash{}, err
+	}
+	file, err := r.openPath(path, unix.O_RDONLY)
 	if err != nil {
 		return FileHash{}, err
 	}
-	hash, info, bytesRead, err := hashFile(ctx, resolved, maxBytes)
+	defer file.Close()
+	hash, info, bytesRead, err := hashOpenFile(ctx, file, maxBytes)
 	if err != nil {
 		return FileHash{}, err
 	}
@@ -200,40 +240,18 @@ func (r *Reader) FindLarge(ctx context.Context, path string, minimumBytes int64,
 	if limit > 200 {
 		return nil, false, errors.New("limit must not exceed 200")
 	}
-	resolved, err := r.resolveContext(ctx, path)
-	if err != nil {
-		return nil, false, err
-	}
 	var found []Metadata
-	err = filepath.WalkDir(resolved, func(current string, entry os.DirEntry, walkErr error) error {
-		if walkErr != nil {
-			return walkErr
+	err := r.walk(ctx, path, func(relative string, depth int, _ *os.File, info os.FileInfo, symlink bool) (bool, bool, error) {
+		if symlink || depth > maxDepth {
+			return false, false, nil
 		}
-		if err := ctx.Err(); err != nil {
-			return err
-		}
-		rel, err := filepath.Rel(resolved, current)
-		if err != nil {
-			return err
-		}
-		depth := 0
-		if rel != "." {
-			depth = len(strings.Split(rel, string(filepath.Separator)))
-		}
-		if entry.IsDir() && depth > maxDepth {
-			return filepath.SkipDir
-		}
-		if entry.Type()&os.ModeSymlink != 0 || entry.IsDir() || depth > maxDepth {
-			return nil
-		}
-		info, err := entry.Info()
-		if err != nil {
-			return err
+		if info.IsDir() {
+			return depth < maxDepth, false, nil
 		}
 		if info.Mode().IsRegular() && info.Size() >= minimumBytes {
-			found = append(found, metadata(filepath.Join(path, rel), info))
+			found = append(found, metadata(filepath.Join(path, relative), info))
 		}
-		return nil
+		return false, false, nil
 	})
 	if err != nil {
 		return nil, false, err
@@ -267,56 +285,35 @@ func (r *Reader) Usage(ctx context.Context, path string, maxDepth, maxEntries in
 	if maxEntries > 20000 {
 		return DirectoryUsage{}, errors.New("max_entries must not exceed 20000")
 	}
-	resolved, err := r.resolveContext(ctx, path)
-	if err != nil {
-		return DirectoryUsage{}, err
-	}
 	out := DirectoryUsage{Path: path}
 	visited := 0
-	err = filepath.WalkDir(resolved, func(current string, entry os.DirEntry, walkErr error) error {
-		if err := ctx.Err(); err != nil {
-			return err
-		}
-		if walkErr != nil {
-			out.Skipped++
-			if entry != nil && entry.IsDir() {
-				return filepath.SkipDir
+	err := r.walk(ctx, path, func(_ string, depth int, _ *os.File, info os.FileInfo, symlink bool) (bool, bool, error) {
+		if depth == 0 {
+			if !info.IsDir() {
+				return false, false, errors.New("path is not a directory")
 			}
-			return nil
+			return true, false, nil
 		}
-		if current == resolved {
-			return nil
-		}
-		rel, err := filepath.Rel(resolved, current)
-		if err != nil {
-			return err
-		}
-		depth := len(strings.Split(rel, string(filepath.Separator)))
-		if entry.Type()&os.ModeSymlink != 0 {
+		if symlink {
 			out.Skipped++
-			return nil
+			return false, false, nil
 		}
-		if entry.IsDir() && depth > maxDepth {
+		if info.IsDir() && depth > maxDepth {
 			out.Truncated = true
-			return filepath.SkipDir
+			return false, false, nil
 		}
 		if depth > maxDepth {
 			out.Truncated = true
-			return nil
+			return false, false, nil
 		}
 		if visited >= maxEntries {
 			out.Truncated = true
-			return filepath.SkipAll
+			return false, true, nil
 		}
 		visited++
-		if entry.IsDir() {
+		if info.IsDir() {
 			out.Directories++
-			return nil
-		}
-		info, err := entry.Info()
-		if err != nil {
-			out.Skipped++
-			return nil
+			return depth < maxDepth, false, nil
 		}
 		if info.Mode().IsRegular() {
 			out.Files++
@@ -324,7 +321,7 @@ func (r *Reader) Usage(ctx context.Context, path string, maxDepth, maxEntries in
 		} else {
 			out.Skipped++
 		}
-		return nil
+		return false, false, nil
 	})
 	return out, err
 }
@@ -348,56 +345,51 @@ func (r *Reader) Snapshot(ctx context.Context, path string, limit int, maxFileBy
 	if maxTotalBytes > DefaultTotalLimit {
 		return Snapshot{}, fmt.Errorf("max_total_bytes must not exceed %d", DefaultTotalLimit)
 	}
-	resolved, err := r.resolveContext(ctx, path)
-	if err != nil {
-		return Snapshot{}, err
-	}
 	out := Snapshot{Root: path}
-	err = filepath.WalkDir(resolved, func(current string, entry os.DirEntry, walkErr error) error {
-		if walkErr != nil {
-			return walkErr
-		}
-		if err := ctx.Err(); err != nil {
-			return err
-		}
-		if entry.IsDir() {
-			return nil
-		}
-		rel, err := filepath.Rel(resolved, current)
-		if err != nil {
-			return err
-		}
-		if entry.Type()&os.ModeSymlink != 0 {
-			out.Skipped = append(out.Skipped, SkippedEntry{RelativePath: rel, Reason: "symlink"})
-			return nil
-		}
+	err := r.walk(ctx, path, func(relative string, depth int, file *os.File, info os.FileInfo, symlink bool) (bool, bool, error) {
 		if len(out.Entries)+len(out.Skipped) >= limit {
 			out.Truncated = true
-			return filepath.SkipAll
+			return false, true, nil
 		}
-		info, err := entry.Info()
-		if err != nil {
-			return err
+		if symlink {
+			out.Skipped = append(out.Skipped, SkippedEntry{RelativePath: relative, Reason: "symlink"})
+			return false, false, nil
+		}
+		if info.IsDir() {
+			if depth >= maxSnapshotDepth {
+				out.Skipped = append(out.Skipped, SkippedEntry{RelativePath: relative, Reason: "depth_limit"})
+				out.Truncated = true
+				return false, false, nil
+			}
+			return true, false, nil
 		}
 		if !info.Mode().IsRegular() {
-			out.Skipped = append(out.Skipped, SkippedEntry{RelativePath: rel, Reason: "not_regular"})
-			return nil
+			out.Skipped = append(out.Skipped, SkippedEntry{RelativePath: relative, Reason: "not_regular"})
+			return false, false, nil
 		}
 		if info.Size() > maxFileBytes {
-			out.Skipped = append(out.Skipped, SkippedEntry{RelativePath: rel, Reason: "file_limit"})
-			return nil
+			out.Skipped = append(out.Skipped, SkippedEntry{RelativePath: relative, Reason: "file_limit"})
+			return false, false, nil
 		}
 		if out.HashedBytes+info.Size() > maxTotalBytes {
-			out.Skipped = append(out.Skipped, SkippedEntry{RelativePath: rel, Reason: "total_limit"})
-			return nil
+			out.Skipped = append(out.Skipped, SkippedEntry{RelativePath: relative, Reason: "total_limit"})
+			return false, false, nil
 		}
-		hash, currentInfo, bytesRead, err := hashFile(ctx, current, maxFileBytes)
+		readable, err := reopenPathFile(file, unix.O_RDONLY)
 		if err != nil {
-			return err
+			return false, false, err
+		}
+		hash, currentInfo, bytesRead, err := hashOpenFile(ctx, readable, maxFileBytes)
+		closeErr := readable.Close()
+		if err != nil {
+			return false, false, errors.Join(err, closeErr)
+		}
+		if closeErr != nil {
+			return false, false, closeErr
 		}
 		out.HashedBytes += bytesRead
-		out.Entries = append(out.Entries, SnapshotEntry{RelativePath: rel, SizeBytes: currentInfo.Size(), Modified: currentInfo.ModTime().UTC(), SHA256: hash})
-		return nil
+		out.Entries = append(out.Entries, SnapshotEntry{RelativePath: relative, SizeBytes: currentInfo.Size(), Modified: currentInfo.ModTime().UTC(), SHA256: hash})
+		return false, false, nil
 	})
 	if err != nil {
 		return Snapshot{}, err
@@ -407,23 +399,11 @@ func (r *Reader) Snapshot(ctx context.Context, path string, limit int, maxFileBy
 	return out, nil
 }
 
-func (r *Reader) resolveContext(ctx context.Context, path string) (string, error) {
-	if err := ctx.Err(); err != nil {
-		return "", err
-	}
-	return r.Resolve(path)
-}
-
 func metadata(path string, info os.FileInfo) Metadata {
 	return Metadata{Path: filepath.Clean(path), Name: info.Name(), SizeBytes: info.Size(), Mode: info.Mode().String(), IsDir: info.IsDir(), IsRegular: info.Mode().IsRegular(), Modified: info.ModTime().UTC()}
 }
 
-func hashFile(ctx context.Context, path string, maxBytes int64) (string, os.FileInfo, int64, error) {
-	file, err := os.Open(path)
-	if err != nil {
-		return "", nil, 0, err
-	}
-	defer file.Close()
+func hashOpenFile(ctx context.Context, file *os.File, maxBytes int64) (string, os.FileInfo, int64, error) {
 	info, err := file.Stat()
 	if err != nil {
 		return "", nil, 0, err

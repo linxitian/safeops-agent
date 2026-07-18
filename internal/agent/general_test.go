@@ -61,6 +61,141 @@ func TestGeneralRuntimeReentersPlannerWithToolResult(t *testing.T) {
 	}
 }
 
+func TestGeneralRuntimeReservesDeadlineForEvidenceBackedFinal(t *testing.T) {
+	ctx := context.Background()
+	store, err := storage.NewFileStore(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	traceWriter, err := trace.NewWriter(store.Root() + "/traces")
+	if err != nil {
+		t.Fatal(err)
+	}
+	now := time.Now().UTC()
+	s := session.Session{ID: "ses_final_reserve", Name: "final reserve", CreatedAt: now, UpdatedAt: now}
+	if err := store.SaveSession(ctx, s); err != nil {
+		t.Fatal(err)
+	}
+	tools := fakeGeneralTools{}
+	planner := &sequencePlanner{decisions: []llm.Decision{
+		{Kind: llm.DecisionTool, DecisionSummary: "读取系统负载", ServerID: "system", Tool: "system.get_load_average", Arguments: map[string]any{}, ExpectedObservation: "负载"},
+		{Kind: llm.DecisionFinal, DecisionSummary: "在截止时间前总结", FinalAnswer: "当前负载已经通过真实 MCP 证据确认。"},
+	}}
+	orchestrator := &Orchestrator{Store: store, Registry: tools, Capabilities: tools, Planner: planner, Safety: fakeSafety{}, Trace: traceWriter, ToolTimeout: time.Second}
+	prepared, err := orchestrator.Prepare(ctx, "task_final_reserve", s.ID, "查看当前系统负载")
+	if err != nil {
+		t.Fatal(err)
+	}
+	prepared.Runtime.DeadlineAt = time.Now().UTC().Add(30 * time.Second)
+	if err := store.SaveTask(ctx, prepared); err != nil {
+		t.Fatal(err)
+	}
+	completed, err := orchestrator.Run(ctx, prepared.ID, s.ID, prepared.OriginalRequest, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if completed.State != task.Completed || len(planner.requests) != 2 {
+		t.Fatalf("unexpected finalization result: task=%+v requests=%d", completed, len(planner.requests))
+	}
+	if planner.requests[0].FinalOnly {
+		t.Fatal("final-only mode was enabled before evidence existed")
+	}
+	finalRequest := planner.requests[1]
+	if !finalRequest.FinalOnly || len(finalRequest.Observations) != 1 || len(finalRequest.Tools) != 0 || len(finalRequest.ManagedActions) != 0 {
+		t.Fatalf("final-only request retained capabilities or lost evidence: %+v", finalRequest)
+	}
+}
+
+func TestGeneralRuntimeRejectsToolDuringFinalOnlyMode(t *testing.T) {
+	ctx := context.Background()
+	store, _ := storage.NewFileStore(t.TempDir())
+	traceWriter, _ := trace.NewWriter(store.Root() + "/traces")
+	now := time.Now().UTC()
+	s := session.Session{ID: "ses_final_only_tool", Name: "final only", CreatedAt: now, UpdatedAt: now}
+	_ = store.SaveSession(ctx, s)
+	tools := fakeGeneralTools{}
+	planner := &sequencePlanner{decisions: []llm.Decision{{Kind: llm.DecisionTool, DecisionSummary: "继续读取", ServerID: "system", Tool: "system.get_load_average", Arguments: map[string]any{}}}}
+	orchestrator := &Orchestrator{Store: store, Registry: tools, Capabilities: tools, Planner: planner, Safety: fakeSafety{}, Trace: traceWriter, ToolTimeout: time.Second}
+	prepared, _ := orchestrator.Prepare(ctx, "task_final_only_tool", s.ID, "查看当前系统负载")
+	prepared.IntentType = "general_bounded_operation"
+	prepared.Runtime.DeadlineAt = time.Now().UTC().Add(30 * time.Second)
+	prepared.Runtime.Observations = []task.RuntimeObservation{{ServerID: "system", Tool: "system.get_load_average", EvidenceRef: "trace://task_final_only_tool/1"}}
+	prepared.EvidenceRefs = []string{"trace://task_final_only_tool/1"}
+	_ = store.SaveTask(ctx, prepared)
+	failed, err := orchestrator.Run(ctx, prepared.ID, s.ID, prepared.OriginalRequest, nil)
+	if err == nil || !strings.Contains(err.Error(), "evidence-backed finalization was required") || failed.State != task.Failed || failed.Runtime.ToolCalls != 0 {
+		t.Fatalf("non-final decision was not rejected: task=%+v err=%v", failed, err)
+	}
+}
+
+func TestGeneralRuntimeFinalizesPersistedEvidenceWithoutHealthyTools(t *testing.T) {
+	ctx := context.Background()
+	store, _ := storage.NewFileStore(t.TempDir())
+	traceWriter, _ := trace.NewWriter(store.Root() + "/traces")
+	now := time.Now().UTC()
+	s := session.Session{ID: "ses_final_without_tools", Name: "final without tools", CreatedAt: now, UpdatedAt: now}
+	_ = store.SaveSession(ctx, s)
+	planner := &sequencePlanner{decisions: []llm.Decision{{Kind: llm.DecisionFinal, DecisionSummary: "使用持久证据总结", FinalAnswer: "已根据持久证据完成总结。"}}}
+	tools := emptyGeneralTools{}
+	orchestrator := &Orchestrator{Store: store, Registry: tools, Capabilities: tools, Planner: planner, Safety: fakeSafety{}, Trace: traceWriter, ToolTimeout: time.Second}
+	prepared, _ := orchestrator.Prepare(ctx, "task_final_without_tools", s.ID, "总结已有调查")
+	prepared.IntentType = "general_bounded_operation"
+	prepared.Runtime.DeadlineAt = time.Now().UTC().Add(30 * time.Second)
+	prepared.Runtime.Observations = []task.RuntimeObservation{{ServerID: "system", Tool: "system.get_load_average", EvidenceRef: "trace://task_final_without_tools/1"}}
+	prepared.EvidenceRefs = []string{"trace://task_final_without_tools/1"}
+	_ = store.SaveTask(ctx, prepared)
+	completed, err := orchestrator.Run(ctx, prepared.ID, s.ID, prepared.OriginalRequest, nil)
+	if err != nil || completed.State != task.Completed || len(planner.requests) != 1 || !planner.requests[0].FinalOnly || len(planner.requests[0].Tools) != 0 {
+		t.Fatalf("persisted evidence was not finalized without tools: task=%+v requests=%+v err=%v", completed, planner.requests, err)
+	}
+}
+
+func TestGeneralRuntimeSwitchesToFinalOnlyWhenPlannerCrossesCutoff(t *testing.T) {
+	ctx := context.Background()
+	store, _ := storage.NewFileStore(t.TempDir())
+	traceWriter, _ := trace.NewWriter(store.Root() + "/traces")
+	now := time.Now().UTC()
+	s := session.Session{ID: "ses_cutoff", Name: "cutoff", CreatedAt: now, UpdatedAt: now}
+	_ = store.SaveSession(ctx, s)
+	planner := &cutoffPlanner{}
+	tools := fakeGeneralTools{}
+	orchestrator := &Orchestrator{Store: store, Registry: tools, Capabilities: tools, Planner: planner, Safety: fakeSafety{}, Trace: traceWriter, ToolTimeout: time.Second}
+	prepared, _ := orchestrator.Prepare(ctx, "task_cutoff", s.ID, "总结已有调查")
+	prepared.IntentType = "general_bounded_operation"
+	prepared.Runtime.DeadlineAt = time.Now().UTC().Add(generalFinalizationReserve + 50*time.Millisecond)
+	prepared.Runtime.Observations = []task.RuntimeObservation{{ServerID: "system", Tool: "system.get_load_average", EvidenceRef: "trace://task_cutoff/1"}}
+	prepared.EvidenceRefs = []string{"trace://task_cutoff/1"}
+	_ = store.SaveTask(ctx, prepared)
+	completed, err := orchestrator.Run(ctx, prepared.ID, s.ID, prepared.OriginalRequest, nil)
+	if err != nil || completed.State != task.Completed || len(planner.requests) != 2 || planner.requests[0].FinalOnly || !planner.requests[1].FinalOnly {
+		t.Fatalf("cutoff did not switch to final-only mode: task=%+v requests=%+v err=%v", completed, planner.requests, err)
+	}
+}
+
+func TestGeneralRuntimeReservesFinalOnlyAttemptAfterIterationLimit(t *testing.T) {
+	ctx := context.Background()
+	store, _ := storage.NewFileStore(t.TempDir())
+	traceWriter, _ := trace.NewWriter(store.Root() + "/traces")
+	now := time.Now().UTC()
+	s := session.Session{ID: "ses_final_iteration", Name: "final iteration", CreatedAt: now, UpdatedAt: now}
+	_ = store.SaveSession(ctx, s)
+	planner := &sequencePlanner{decisions: []llm.Decision{{Kind: llm.DecisionFinal, DecisionSummary: "在保留尝试中总结", FinalAnswer: "已根据持久证据完成总结。"}}}
+	tools := fakeGeneralTools{}
+	orchestrator := &Orchestrator{Store: store, Registry: tools, Capabilities: tools, Planner: planner, Safety: fakeSafety{}, Trace: traceWriter, ToolTimeout: time.Second}
+	prepared, _ := orchestrator.Prepare(ctx, "task_final_iteration", s.ID, "总结已有调查")
+	prepared.IntentType = "general_bounded_operation"
+	prepared.Runtime.MaxIterations = MaxIterations
+	prepared.Runtime.Iterations = MaxIterations
+	prepared.Runtime.DeadlineAt = time.Now().UTC().Add(30 * time.Second)
+	prepared.Runtime.Observations = []task.RuntimeObservation{{ServerID: "system", Tool: "system.get_load_average", EvidenceRef: "trace://task_final_iteration/1"}}
+	prepared.EvidenceRefs = []string{"trace://task_final_iteration/1"}
+	_ = store.SaveTask(ctx, prepared)
+	completed, err := orchestrator.Run(ctx, prepared.ID, s.ID, prepared.OriginalRequest, nil)
+	if err != nil || completed.State != task.Completed || completed.Runtime.Iterations != MaxIterations || len(planner.requests) != 1 || !planner.requests[0].FinalOnly {
+		t.Fatalf("iteration limit consumed final-only reserve: task=%+v requests=%+v err=%v", completed, planner.requests, err)
+	}
+}
+
 func TestGeneralRuntimeRecordsReadToolFailureAndContinues(t *testing.T) {
 	ctx := context.Background()
 	store, err := storage.NewFileStore(t.TempDir())
@@ -594,6 +729,13 @@ type fakeGeneralTools struct{}
 func (fakeGeneralTools) AvailableTools() []llm.ToolCapability {
 	return []llm.ToolCapability{{ServerID: "system", Name: "system.get_load_average", Description: "load", InputSchema: json.RawMessage(`{"type":"object","properties":{},"additionalProperties":false}`)}}
 }
+
+type emptyGeneralTools struct{}
+
+func (emptyGeneralTools) AvailableTools() []llm.ToolCapability { return nil }
+func (emptyGeneralTools) CallTool(context.Context, string, string, any) (*mcp.CallToolResult, error) {
+	return nil, errors.New("unavailable")
+}
 func (fakeGeneralTools) CallTool(_ context.Context, server, name string, _ any) (*mcp.CallToolResult, error) {
 	if server != "system" || name != "system.get_load_average" {
 		return nil, errors.New("unavailable")
@@ -628,6 +770,19 @@ type sequencePlanner struct {
 }
 
 type blockingPlanner struct{}
+
+type cutoffPlanner struct {
+	requests []llm.DecisionRequest
+}
+
+func (p *cutoffPlanner) Decide(ctx context.Context, request llm.DecisionRequest) (llm.Decision, error) {
+	p.requests = append(p.requests, request)
+	if !request.FinalOnly {
+		<-ctx.Done()
+		return llm.Decision{}, ctx.Err()
+	}
+	return llm.Decision{Kind: llm.DecisionFinal, DecisionSummary: "在保留时间内总结", FinalAnswer: "已根据持久证据完成总结。"}, nil
+}
 
 func (blockingPlanner) Decide(ctx context.Context, _ llm.DecisionRequest) (llm.Decision, error) {
 	<-ctx.Done()

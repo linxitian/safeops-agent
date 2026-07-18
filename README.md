@@ -114,7 +114,7 @@ npm --prefix web run dev
 查看 CPU 和内存。
 ```
 
-未配置 LLM 时，Agent 提供确定性的 CPU/内存只读纵切片。配置 Provider 后，通用 Runtime 只能选择 Registry 实际发现的 L0 Tool，并在本地校验 JSON Schema；每个 Tool Result 都重新进入 Runtime。模型只能在用户明确要求对应动作、相关 MCP 成功证据包含精确结构化目标身份后，申请 `service.restart` 或 `process.terminate` 两种固定受管动作；本地策略、目标快照和人工审批仍独立生效。写动作准备还需要显式提供执行器配置和 0600 HMAC secret，默认关闭。
+未配置 LLM 时，Agent 提供确定性的 CPU/内存只读纵切片。配置 Provider 后，通用 Runtime 只能选择 Registry 实际发现的 L0 Tool，并在本地校验 JSON Schema；每个 Tool Result 都重新进入 Runtime。Provider 已成功返回但决策 JSON 不符合契约、Server/Tool/受管动作名称没有精确匹配本次能力表，或最终结论没有精确引用任何已提供 `evidence_ref` 时，会携带有界错误摘要纠正一次；第二次仍无效则失败，网络与 HTTP 错误不会由该机制重试。系统提示同时约束字节换算、磁盘压力和大文件结论必须由结构化数值支持。两分钟通用任务在已有证据后会保留最后一分钟用于生成结论：此时不再向模型暴露 Tool 或受管动作，非 `final` 决策也会被本地拒绝。模型只能在用户明确要求对应动作、相关 MCP 成功证据包含精确结构化目标身份后，申请 `service.restart` 或 `process.terminate` 两种固定受管动作；本地策略、目标快照和人工审批仍独立生效。写动作准备还需要显式提供执行器配置和 0600 HMAC secret，默认关闭。
 
 ## 配置与环境变量
 
@@ -273,7 +273,7 @@ Ubuntu/amd64 与官方 Kylin V11/loong64 报告均包含六个 PASS 套件和 16
 
 - 七类 Collector 已覆盖题目指定的 proc/process、磁盘、网络、systemd、journal、系统配置和 allowlist 配置变化，并已在官方目标机原生执行；Prometheus/OTel 传输无关适配模型也已原生完成计数审计，但尚未部署或验证外部遥测平台。
 - 已有 39 个只读 Tool 覆盖八个要求域；Registry 生命周期、工具集变化、非重叠周期健康、依赖元数据、真实 initialize 身份及有界失败/恢复历史已通过 Ubuntu 协议和 API/UI 测试，新增周期行为仍待本次精确构建在官方 Kylin 目标机验证。
-- 通用 Agent Runtime 已用真实兼容 Provider 在目标机验证；近期用户/助手消息和有序已选资源会以有界、脱敏结构进入追问规划，单次 Provider 调用受持久 Agent 截止时间约束。无 Provider 时仍可使用 CPU/内存确定性纵切片。
+- 通用 Agent Runtime 已用真实兼容 Provider 在目标机验证；候选 `96e6702` 使用 DeepSeek V4 Flash 在 10.1 秒内完成真实 `/var/log` 调查，正确报告 GiB 换算和 13.9% 使用率，并引用对应 `VALID` Trace 证据。近期用户/助手消息和有序已选资源会以有界、脱敏结构进入追问规划，单次 Provider 调用受持久 Agent 截止时间约束。无 Provider 时仍可使用 CPU/内存确定性纵切片。
 - 模型申请固定服务重启/进程终止，以及读写根分离的路径资源管理器当前为 `TESTED`；尚未在官方 Kylin 目标机完成这一新增范围的原生审批执行与真实浏览器复测，不能沿用旧版本证据提升为 `TARGET_VERIFIED`。
 - SSE 保留最近 200 个进程内事件用于 `Last-Event-ID` 回放；跨重启不伪造历史，而是发出 `task.gap` + 持久 Task 快照并让前端回读完整 Trace。
 - Session JSON 当前内嵌 Messages；文件锁与原子 mutation 已避免并发丢失，但超长会话未来仍可拆成独立 Message Store。

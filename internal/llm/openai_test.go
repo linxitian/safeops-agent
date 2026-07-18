@@ -47,6 +47,150 @@ func TestOpenAICompatibleDecisionContract(t *testing.T) {
 	}
 }
 
+func TestOpenAICompatibleRepairsMalformedDecisionOnce(t *testing.T) {
+	requests := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requests++
+		var request struct {
+			Messages []chatMessage `json:"messages"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
+			t.Fatal(err)
+		}
+		content := `{"kind":"tool","decision_summary":"读取磁盘占用","server_id":"system","tool":"system.get_disk_usage","arguments":{"path":"/var/log"},"expected_observaton":"目录占用"}`
+		if requests == 2 {
+			if len(request.Messages) != 3 || request.Messages[2].Role != "user" || !strings.Contains(request.Messages[2].Content, `unknown field "expected_observaton"`) {
+				t.Fatalf("repair feedback missing or unsafe: %+v", request.Messages)
+			}
+			content = `{"kind":"tool","decision_summary":"读取磁盘占用","server_id":"system","tool":"system.get_disk_usage","arguments":{"path":"/var/log"},"expected_observation":"目录占用"}`
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{"choices": []any{map[string]any{"message": map[string]any{"role": "assistant", "content": content}}}})
+	}))
+	defer server.Close()
+	provider, _ := NewOpenAICompatible(Config{BaseURL: server.URL, APIKey: "key", Model: "model", Client: server.Client()})
+	decision, err := provider.Decide(context.Background(), DecisionRequest{Objective: "修复 /var/log 磁盘占用问题", Tools: []ToolCapability{{ServerID: "system", Name: "system.get_disk_usage"}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if requests != 2 || decision.ExpectedObservation != "目录占用" {
+		t.Fatalf("repair result = (%d, %+v), want one retry and corrected decision", requests, decision)
+	}
+}
+
+func TestOpenAICompatibleRepairsUnlistedToolNameOnce(t *testing.T) {
+	requests := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requests++
+		var request struct {
+			Messages []chatMessage `json:"messages"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
+			t.Fatal(err)
+		}
+		tool := "get_disk_usage"
+		if requests == 2 {
+			if len(request.Messages) != 3 || !strings.Contains(request.Messages[2].Content, "exact listed server_id and tool name") {
+				t.Fatalf("tool-name repair feedback missing: %+v", request.Messages)
+			}
+			tool = "system.get_disk_usage"
+		}
+		content := `{"kind":"tool","decision_summary":"读取磁盘占用","server_id":"system","tool":"` + tool + `","arguments":{"path":"/var/log"},"expected_observation":"磁盘占用"}`
+		_ = json.NewEncoder(w).Encode(map[string]any{"choices": []any{map[string]any{"message": map[string]any{"role": "assistant", "content": content}}}})
+	}))
+	defer server.Close()
+	provider, _ := NewOpenAICompatible(Config{BaseURL: server.URL, APIKey: "key", Model: "model", Client: server.Client()})
+	decision, err := provider.Decide(context.Background(), DecisionRequest{Objective: "检查 /var/log", Tools: []ToolCapability{{ServerID: "system", Name: "system.get_disk_usage"}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if requests != 2 || decision.Tool != "system.get_disk_usage" {
+		t.Fatalf("tool-name repair result = (%d, %+v), want one retry with exact tool", requests, decision)
+	}
+}
+
+func TestOpenAICompatibleRepairsUncitedFinalOnce(t *testing.T) {
+	requests := 0
+	reference := "trace://task_target/11"
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requests++
+		var request struct {
+			Messages []chatMessage `json:"messages"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
+			t.Fatal(err)
+		}
+		content := `{"kind":"final","decision_summary":"基于证据总结","final_answer":"磁盘状态正常。"}`
+		if requests == 2 {
+			if len(request.Messages) != 3 || !strings.Contains(request.Messages[2].Content, "must cite at least one provided evidence_ref exactly") {
+				t.Fatalf("citation repair feedback missing: %+v", request.Messages)
+			}
+			content = `{"kind":"final","decision_summary":"基于证据总结","final_answer":"磁盘状态正常，证据：trace://task_target/11。"}`
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{"choices": []any{map[string]any{"message": map[string]any{"role": "assistant", "content": content}}}})
+	}))
+	defer server.Close()
+	provider, _ := NewOpenAICompatible(Config{BaseURL: server.URL, APIKey: "key", Model: "model", Client: server.Client()})
+	decision, err := provider.Decide(context.Background(), DecisionRequest{Objective: "检查磁盘", Observations: []Observation{{Tool: "system.get_disk_usage", EvidenceRef: reference}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if requests != 2 || !strings.Contains(decision.FinalAnswer, reference) {
+		t.Fatalf("citation repair result = (%d, %+v), want one retry with exact reference", requests, decision)
+	}
+}
+
+func TestValidateDecisionForRequestRequiresExactEvidenceReference(t *testing.T) {
+	input := DecisionRequest{Tools: []ToolCapability{{ServerID: "system", Name: "system.get_disk_usage"}}, Observations: []Observation{{EvidenceRef: "trace://task/11"}}}
+	uncited := Decision{Kind: DecisionFinal, FinalAnswer: "已经检查完成。"}
+	if err := validateDecisionForRequest(uncited, input); err == nil {
+		t.Fatal("uncited final answer was accepted")
+	}
+	cited := Decision{Kind: DecisionFinal, FinalAnswer: "已经检查完成（trace://task/11）。"}
+	if err := validateDecisionForRequest(cited, input); err != nil {
+		t.Fatal(err)
+	}
+	for _, answer := range []string{"错误引用 trace://task/110。", "错误引用 xtrace://task/11。", "错误引用 trace://task/11anything。"} {
+		if err := validateDecisionForRequest(Decision{Kind: DecisionFinal, FinalAnswer: answer}, input); err == nil {
+			t.Fatalf("non-exact evidence reference was accepted: %q", answer)
+		}
+	}
+	if err := validateDecisionForRequest(Decision{Kind: DecisionTool, ServerID: "system", Tool: "system.get_disk_usage"}, input); err != nil {
+		t.Fatalf("exact listed tool was rejected: %v", err)
+	}
+	if err := validateDecisionForRequest(Decision{Kind: DecisionTool, ServerID: "system", Tool: "get_disk_usage"}, input); err == nil {
+		t.Fatal("shortened unlisted tool name was accepted")
+	}
+}
+
+func TestOpenAICompatibleStopsAfterOneFailedRepair(t *testing.T) {
+	requests := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		requests++
+		content := `{"kind":"tool","decision_summary":"x","server_id":"system","tool":"system.get_disk_usage","arguments":{},"unexpected":true}`
+		_ = json.NewEncoder(w).Encode(map[string]any{"choices": []any{map[string]any{"message": map[string]any{"role": "assistant", "content": content}}}})
+	}))
+	defer server.Close()
+	provider, _ := NewOpenAICompatible(Config{BaseURL: server.URL, APIKey: "key", Model: "model", Client: server.Client()})
+	_, err := provider.Decide(context.Background(), DecisionRequest{Objective: "test"})
+	if err == nil || requests != 2 || !strings.Contains(err.Error(), "after one repair attempt") {
+		t.Fatalf("failed repair result = (%d, %v), want two requests and final rejection", requests, err)
+	}
+}
+
+func TestOpenAICompatibleDoesNotRepairProviderFailure(t *testing.T) {
+	requests := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		requests++
+		w.WriteHeader(http.StatusBadGateway)
+	}))
+	defer server.Close()
+	provider, _ := NewOpenAICompatible(Config{BaseURL: server.URL, APIKey: "key", Model: "model", Client: server.Client()})
+	_, err := provider.Decide(context.Background(), DecisionRequest{Objective: "test"})
+	if err == nil || requests != 1 {
+		t.Fatalf("provider failure result = (%d, %v), want no repair retry", requests, err)
+	}
+}
+
 func TestDecisionSystemPromptConstrainsAmbiguousFollowupsToSelectedResources(t *testing.T) {
 	if !strings.Contains(decisionSystemPrompt, "selected_resources is an ordered durable scope") || !strings.Contains(decisionSystemPrompt, "ambiguous follow-up") {
 		t.Fatal("system prompt does not define durable follow-up scope")
@@ -59,6 +203,12 @@ func TestDecisionSystemPromptConstrainsAmbiguousFollowupsToSelectedResources(t *
 	}
 	if !strings.Contains(decisionSystemPrompt, "local_read_scope is an authoritative local-policy boundary") || !strings.Contains(decisionSystemPrompt, "excluded_paths") || !strings.Contains(decisionSystemPrompt, "never authorizes expanding to another root") || !strings.Contains(decisionSystemPrompt, "guard_feedback") {
 		t.Fatal("system prompt does not enforce local read scope or bounded guard feedback")
+	}
+	if !strings.Contains(decisionSystemPrompt, "If final_only is true") || !strings.Contains(decisionSystemPrompt, "must not return tool, action_request, or replan") {
+		t.Fatal("system prompt does not enforce evidence-backed final-only mode")
+	}
+	if !strings.Contains(decisionSystemPrompt, "1 MiB = 1048576 bytes") || !strings.Contains(decisionSystemPrompt, "Never describe a millions-of-bytes file as gigabytes") || !strings.Contains(decisionSystemPrompt, "cite at least one provided evidence_ref exactly") {
+		t.Fatal("system prompt does not constrain numeric evidence or exact citations")
 	}
 }
 

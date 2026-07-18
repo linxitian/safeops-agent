@@ -360,7 +360,7 @@ func (r *Reader) Snapshot(ctx context.Context, path string, limit int, maxFileBy
 		if err := ctx.Err(); err != nil {
 			return err
 		}
-		if current == resolved || entry.IsDir() {
+		if entry.IsDir() {
 			return nil
 		}
 		rel, err := filepath.Rel(resolved, current)

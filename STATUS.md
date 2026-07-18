@@ -7,7 +7,7 @@ Updated: 2026-07-18
 | Milestone | Status | Evidence |
 |---|---:|---|
 | M0 Research/spec/matrices | IMPLEMENTED | Required management and seven research documents exist; empty baseline audit recorded |
-| M1 Platform/collectors | TESTED | Seven normalized Collectors cover proc/process, disk/directory/large-file, network, systemd, journal, system config/sysctl and allowlisted config changes; bounded partial batches, adapters, fixtures and real Linux smoke pass |
+| M1 Platform/collectors | TARGET_VERIFIED | Installed non-root target run executed all seven normalized Collectors plus Prometheus/OpenTelemetry adapter models with bounded count-only evidence; 7/7 completed without issue or truncation |
 | M2 MCP registry/tools | TARGET_VERIFIED | Official Kylin V11/loong64: installed non-root Registry initialized/pinged 8/8 servers and completed one bounded structured call for each of 39/39 tools |
 | M3 First vertical slice | TESTED | Ubuntu: live HTTP/SSE run, real MCP `/proc` results, 22-event valid Trace, restart recovery |
 | M4 General Agent Runtime | TARGET_VERIFIED | Credentialed compatible-provider runs on official Kylin completed real MCP reads; merged release `1a10880` preserved bounded durable follow-up scope and enforced the two-minute Agent deadline |
@@ -54,6 +54,7 @@ Updated: 2026-07-18
 - Added an explicit bundled SVG favicon and verified the installed target-served Console, Overview, Tool, Safety, RCA, Audit, Allowlist and LLM views through real Chrome without browser/network errors, overflow or unnamed interactive controls.
 - Added and audited `targetctl` probe/test/report/doctor on the official Kylin V11/loong64 target. Generated reports correctly remain `target_verified=false`; the separate maintainer audit is recorded in `docs/target-verification-2026-07-18.md`.
 - Extended `targetctl test` with a unique, time-bounded official-SDK call for every discovered Tool, dynamic targetctl PID checks, non-secret Lab file/config fixtures, dependency capture, failure aggregation and redacted/bounded error details; successful payloads are not persisted.
+- Extended `targetctl test` again with an exact seven-Collector plan, per-collector deadlines, aggregate budgets, count-only Prometheus/OpenTelemetry adapter execution and no persisted Observation values; fixed-file SafeFS snapshots provide deterministic, non-secret configuration evidence without weakening empty-result failure checks.
 - Corrected the development and installed `mcp-config` manifests so the comma-separated `/etc/safeops,/var/lib/safeops/lab/config` value remains one argument; regression tests load both manifests and assert both allowlist roots.
 - Added `safeops-bench` with six suites, auditable case rows, 16 named metrics, `NOT_MEASURED` for unselected suites and fixed JSON/Markdown reports.
 - Added optional prebuilt-Web serving with SPA fallback and static/API isolation tests, so the installed server can deliver the Chinese console without an external Web server.
@@ -75,7 +76,7 @@ Updated: 2026-07-18
 | MCP Registry compiled stdio initialize/discovery/ping | PASS; 8 healthy Servers, 39 discovered Tools |
 | Official Kylin installed Registry native calls | PASS; unique call plan and structured results for 39/39 Tools as non-root `safeops` |
 | SafeFS boundary/hash/config snapshot | PASS; traversal/symlink escape and size bounds tested |
-| Unified Collector batches | PASS; all seven required collectors, partial permission failure, timeout/output budgets, no config-body persistence, adapters and real Linux smoke |
+| Unified Collector batches | TARGET_VERIFIED; installed non-root Kylin run completed 7/7 collectors, 195 observations, no issues/truncation and both count-only adapter models; no Observation values or configuration hashes persisted |
 | Guard/approval/envelope/executor negatives | PASS; mismatch, injection, tamper, expiry, replay and target change denied |
 | Approval resume and real Lab rollback | PASS; approved/rejected/failure/restart recovery plus real quarantine/restore/create/delete cycles |
 | Port recovery state machine | PASS; 10/10 plan, five read tools, D1/RAG, L2 process approval, separate L1 restart approval and HTTP verification |
@@ -84,8 +85,8 @@ Updated: 2026-07-18
 | Durable task concurrency/recovery | PASS; cross-store file locks, exclusive lease/fencing, expiry takeover, stale-write rejection and uncertain external action fail-closed |
 | Evidence/RCA/BM25 | PASS; graph stability, confidence components and retrieval provenance |
 | `safeops-bench all` | TARGET_VERIFIED; six suites and 16 measured metrics pass on official Kylin V11/loong64 as non-root `safeops`; report stores exact sample counts and methods |
-| Final target report checksums | PASS; original probe/test/doctor, full-call `target_ae6d4bbeb9ae7b8e5764` and exact-merge `target_7a42c5e387e7abeea4f8` independently checksum-verified |
-| Official Kylin V11 native checks | PASS with bounded WARN; loong64/Kylin/glibc/systemd/proc/statfs, 8/8 MCP and 39/39 native Tool calls pass; only optional `git`/`go` commands absent |
+| Final target report checksums | PASS; original probe/test/doctor, full-call `target_ae6d4bbeb9ae7b8e5764`, exact-merge `target_7a42c5e387e7abeea4f8` and Collector follow-up `target_df68d477155fd8d55d75` independently checksum-verified |
+| Official Kylin V11 native checks | PASS with bounded WARN; loong64/Kylin/glibc/systemd/proc/statfs, 8/8 MCP, 39/39 native Tool calls, 7/7 Collectors and both adapter models pass; only optional `git`/`go` commands absent |
 | Credentialed compatible-provider runs | PASS; real MCP evidence, final three-resource follow-up scope and provider-deadline failure persistence verified |
 | Installed port/CPU/disk/file workflows | PASS; 10/10, 7/7, 8/8 and final four-turn quarantine/restore flows completed with `VALID` Traces |
 | M16 release pipeline | PASS locally; tests/vet/frontend plus 16 amd64 and 16 loong64 commands, fixed tar.gz and outer SHA256 produced |
@@ -121,7 +122,7 @@ Request: `查看 CPU 和内存。`
 - Every one of the 39 MCP read Tools now has a successful official Kylin native structured-call check; no Tool remains discovery-only in the audited matrix.
 - Port, CPU, disk/log and multi-turn file Demos are now `TARGET_VERIFIED`; exact task and Trace identifiers are in `docs/target-verification-2026-07-18.md`.
 - Kylin V11/LoongArch64 compatibility and release/deployment are `TARGET_VERIFIED`; the documented root-only backup is required only when operator configuration and approval-signing identity must survive the intentional `/etc` removal.
-- OS depth perception remains `TESTED` because not every Collector adapter has target execution evidence; the eight-view Chinese Web is now `TARGET_VERIFIED` by the installed target real-browser audit.
+- OS depth perception is now `TARGET_VERIFIED`: all seven Collectors and both transport-neutral adapter models executed in the installed non-root target runtime with bounded count-only evidence. This does not claim deployment of an external telemetry platform.
 - Benchmark/evaluation is now `TARGET_VERIFIED` for controlled native execution: all six installed suites and 16 metrics passed on Kylin/loong64; no fixture metric is presented as a real-world accuracy estimate.
 
 ## Currently complete demo scenarios
@@ -140,8 +141,8 @@ All named target workflows have `VALID` hash-chained Traces. The eight-view UI i
 
 - The target image lacks optional `git` and `go` commands. They are not release runtime dependencies, but their absence remains visible as bounded report warnings.
 - `make` is absent on the Ubuntu development host, but equivalent direct commands pass, so this does not block development.
-- Target execution evidence is still incomplete for every Collector adapter.
+- Registry periodic health scheduling, dependency-state projection and version history remain engineering gaps; current lifecycle operations are explicit/API-driven.
 
 ## Human action required now
 
-The next evidence priority is target execution of the remaining Collector adapters. Provider credentials, official target reports, Web traversal, target Benchmark and data-preserving uninstall/reinstall are no longer blockers.
+The next engineering priority is a bounded periodic Registry health loop with dependency-state and version-history evidence. Provider credentials, official target reports, Collector/adapters, Web traversal, target Benchmark and data-preserving uninstall/reinstall are no longer blockers.

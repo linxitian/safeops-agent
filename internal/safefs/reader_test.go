@@ -59,6 +59,25 @@ func TestReaderBoundsAndSnapshot(t *testing.T) {
 	}
 }
 
+func TestReaderSnapshotsAllowlistedFileRoot(t *testing.T) {
+	root := t.TempDir()
+	path := filepath.Join(root, "mcp_servers.yaml")
+	if err := os.WriteFile(path, []byte("servers: []\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	reader, err := NewReader(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	snapshot, err := reader.Snapshot(context.Background(), path, 1, 100, 100)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if snapshot.Root != path || len(snapshot.Entries) != 1 || snapshot.Entries[0].RelativePath != "." || snapshot.Entries[0].SHA256 == "" {
+		t.Fatalf("unexpected file snapshot: %+v", snapshot)
+	}
+}
+
 func TestReaderRejectsBroadOrRelativeRoots(t *testing.T) {
 	if _, err := NewReader("/"); err == nil {
 		t.Fatal("filesystem root accepted")

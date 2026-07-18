@@ -46,7 +46,7 @@ Updated: 2026-07-18. Local `policies/tools.yaml` is authoritative; all currently
 
 All 39 tools use typed official SDK schemas and are present in the local security catalog. Protocol evidence includes per-server in-memory initialize/list/call and official Kylin V11/loong64 Registry runs where eight installed stdio Servers initialized, responded to ping and exposed 39 fingerprints. Runtime `b5383e9` added a unique, individually bounded target call plan; checksum-verified report `target_ae6d4bbeb9ae7b8e5764` records successful structured calls for all 39 tools as the non-root `safeops` identity. Registry tests also cover disable/re-enable, rediscovery, stable fingerprints and detected tool-list changes.
 
-The same typed Platform/SafeFS values now feed seven collector-independent Observation sources with per-collector timeout, partial-error and output budgets. This does not add tools or change the count: the MCP matrix remains exactly 8 Servers and 39 L0 tools.
+The same typed Platform/SafeFS values now feed seven collector-independent Observation sources with per-collector timeout, partial-error and output budgets. Installed candidate runtime `053fc2c` executed all seven Collectors and the Prometheus/OpenTelemetry adapter models as non-root `safeops`; target report `target_df68d477155fd8d55d75` persisted only counts. This does not add tools or change the count: the MCP matrix remains exactly 8 Servers and 39 L0 tools, and no external telemetry platform deployment is claimed.
 
 Partial-evidence notes are explicit: non-root process FD ownership can be incomplete; journald depends on user ACLs and caps results at 500; commands/logs are truncated and common secret arguments redacted. Tool output never claims full visibility when permissions prevent it.
 

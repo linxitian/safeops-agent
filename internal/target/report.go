@@ -165,6 +165,7 @@ func Test(ctx context.Context, mcpConfig string) Report {
 		report.Checks = append(report.Checks, Check{Name: "mcp_call_plan", Status: Pass, Details: fmt.Sprintf("%d/%d discovered tools have one native call", len(calls), tools)})
 	}
 	appendTargetToolCallChecks(ctx, &report, reg, calls)
+	appendNativeCollectorChecks(ctx, &report)
 	report.finish()
 	return report
 }

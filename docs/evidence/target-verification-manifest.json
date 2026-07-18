@@ -81,25 +81,25 @@
     },
     {
       "scope": "pr_57_real_agent_decision_reliability",
-      "candidate_commit": "384f06c212750da3732ee2be1a77c5374825d18f",
+      "candidate_commit": "d0d664289ef380aca0fea9b1fe4ea2d13aac13d8",
       "candidate_commit_reachable_from_default_branch": false,
       "pull_request": 57,
       "pull_ref": "refs/pull/57/head",
-      "release_sha256": "8ee24f8fbfc360faa090b870eabe9891112cdce56f66ce1028f880218cec029a",
+      "release_sha256": "d4feb518862942d35c90492f2c247db3c32e73bf75978771bfb99371b49d75ea",
       "provider": {
         "base_url": "https://api.deepseek.com",
         "model": "deepseek-v4-flash"
       },
-      "task_ids": ["task_29ebd42581d2dda9a4670aca"],
+      "task_ids": ["task_b91a18bc41a6d713030be924"],
       "runtime_checks": {
         "result": "COMPLETED",
-        "elapsed_seconds": 21.1,
-        "scoped_tool_calls": 2,
-        "evidence_citations": 2,
+        "elapsed_seconds": 6.1,
+        "scoped_tool_calls": 1,
+        "evidence_citations": 1,
         "trace_integrity": "VALID",
         "mcp_servers": "8/8"
       },
-      "claim_boundary": "target verifies the final cited numeric conclusion and Provider compatibility; malformed-response repair and reserved final-only recovery remain deterministic TESTED evidence"
+      "claim_boundary": "target verifies the final cited numeric conclusion and Provider compatibility; malformed-response repair, capability-name correction and reserved final-only recovery remain deterministic TESTED evidence"
     }
   ]
 }

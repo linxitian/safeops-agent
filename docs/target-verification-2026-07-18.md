@@ -117,37 +117,39 @@ This is exact-merge native runtime regression evidence for the named Collector, 
 
 ## PR #57 real-agent reliability follow-up
 
-Candidate `384f06c212750da3732ee2be1a77c5374825d18f` passed `go test ./...`,
+Candidate `d0d664289ef380aca0fea9b1fe4ea2d13aac13d8` passed `go test ./...`,
 `go vet ./...`, the installer environment regression, 19 frontend tests,
 frontend lint/build, and all 16 commands for both linux/amd64 and
 linux/loong64 with `CGO_ENABLED=0`. Its LoongArch64 release archive SHA-256
-was `8ee24f8fbfc360faa090b870eabe9891112cdce56f66ce1028f880218cec029a`.
+was `d4feb518862942d35c90492f2c247db3c32e73bf75978771bfb99371b49d75ea`.
 The checksum-verified bundle was installed on the official Kylin target;
-`/opt/safeops/VERSION` reported `384f06c`, both core services were active,
+`/opt/safeops/VERSION` reported `d0d6642`, both core services were active,
 8/8 MCP servers were `HEALTHY`, and all four fault-generator Lab units
 remained inactive.
 
 The operator changed the persisted OpenAI-compatible Provider to
 `https://api.deepseek.com` with model `deepseek-v4-flash`; the secret value
 was neither read back nor recorded. Target task
-`task_29ebd42581d2dda9a4670aca` then handled `修复 /var/log 磁盘占用问题`
-in 21.1 seconds and completed after exactly two scoped MCP calls:
-`system.get_disk_usage` and `file.find_large`, both on `/var/log`. Its final
-answer correctly reported 13.86% filesystem use, concluded that no disk
-pressure required repair, disclosed that recursive large-file discovery was
-permission-limited, and cited both exact evidence references. The exported
-Trace was `VALID`.
+`task_b91a18bc41a6d713030be924` then handled `修复 /var/log 磁盘占用问题`
+in 6.1 seconds and completed after one scoped `system.get_disk_usage` call on
+`/var/log`. Its final answer preserved the exact byte counts, converted them
+correctly to GiB, reported 13.86% filesystem use, concluded that no disk
+pressure required repair, and cited the exact evidence reference. The
+exported Trace was `VALID`.
 
 This run followed three evidence-producing failures that shaped PR #57:
 `task_6987e27baae5b9b0a770f433` failed on the misspelled field
 `expected_observaton`; `task_363660771fa02836af64cc6e` gathered six scoped
 observations but exhausted the durable deadline before summarizing; and
 `task_f363c774eb6ddb15d4c1d3a5` completed but mislabeled roughly 6 MiB files
-as gigabytes and omitted citations. The final target task verifies the
+as gigabytes and omitted citations; `task_23ce447ae06a6e022fe72149`
+failed before MCP dispatch when DeepSeek shortened `system.get_disk_usage` to
+an unlisted tool name. The final target task verifies the
 evidence-cited, numerically bounded operational conclusion and Provider
 compatibility. The exact malformed-response retry and reserved final-only
-branch remain `TESTED` by deterministic provider/runtime tests because the
-successful final target task did not need to enter those recovery branches.
+branch, as well as the capability-name correction branch, remain `TESTED` by
+deterministic provider/runtime tests because the successful final target task
+did not need to enter those recovery branches.
 
 ## Status decisions and remaining gaps
 

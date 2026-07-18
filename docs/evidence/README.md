@@ -48,10 +48,10 @@ the installed and default-branch identities are the same.
 
 ## PR #57 real-agent reliability follow-up
 
-Candidate `384f06c` from PR #57 was built for both supported Linux
+Candidate `d0d6642` from PR #57 was built for both supported Linux
 architectures and installed on the official Kylin V11/LoongArch64 target.
-DeepSeek V4 Flash task `task_29ebd42581d2dda9a4670aca` completed the real
-`/var/log` diagnosis in 21.1 seconds with two scoped MCP calls, two exact
-evidence citations and a `VALID` Trace. The release archive SHA-256 was
-`8ee24f8fbfc360faa090b870eabe9891112cdce56f66ce1028f880218cec029a`.
+DeepSeek V4 Flash task `task_b91a18bc41a6d713030be924` completed the real
+`/var/log` diagnosis in 6.1 seconds with one scoped MCP call, one exact
+evidence citation and a `VALID` Trace. The release archive SHA-256 was
+`d4feb518862942d35c90492f2c247db3c32e73bf75978771bfb99371b49d75ea`.
 No Provider key is stored in this index or the restricted task evidence.

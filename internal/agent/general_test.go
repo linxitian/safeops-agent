@@ -452,7 +452,7 @@ func TestManagedActionRequiresExplicitOperatorIntent(t *testing.T) {
 			t.Fatalf("direct English service restart request was rejected: %q", request)
 		}
 	}
-	for _, request := range []string{"check the service restart count", "查看服务重启历史", "how to restart nginx", "should I restart nginx?"} {
+	for _, request := range []string{"check the service restart count", "查看服务重启历史", "重启服务的风险", "how to restart nginx", "restart nginx impact", "should I restart nginx?"} {
 		if managedActionIntentAllows(request, "service.restart") {
 			t.Fatalf("read-only service restart wording authorized an action: %q", request)
 		}
@@ -464,6 +464,8 @@ func TestManagedActionRequiresExplicitOperatorIntent(t *testing.T) {
 		"check only; do not restart service",
 		"never restart the service",
 		"without restarting the service",
+		"don't, under any circumstances, restart nginx",
+		"不要在任何情况下，重启 demo 服务",
 	} {
 		if managedActionIntentAllows(request, "service.restart") {
 			t.Fatalf("negated service request authorized a restart: %q", request)
@@ -480,7 +482,7 @@ func TestManagedActionRequiresExplicitOperatorIntent(t *testing.T) {
 			t.Fatalf("direct English process action was rejected: %q", request)
 		}
 	}
-	for _, request := range []string{"explain how to kill process 123", "告诉我如何终止进程", "should I stop the process?"} {
+	for _, request := range []string{"explain how to kill process 123", "告诉我如何终止进程", "终止进程的风险", "stop process impact", "should I stop the process?"} {
 		if managedActionIntentAllows(request, "process.terminate") {
 			t.Fatalf("read-only process wording authorized an action: %q", request)
 		}
@@ -492,6 +494,8 @@ func TestManagedActionRequiresExplicitOperatorIntent(t *testing.T) {
 		"do not kill process; only inspect",
 		"don't stop process",
 		"without terminating the process",
+		"don't, under any circumstances, stop the process",
+		"禁止在任何情况下，终止这个进程",
 	} {
 		if managedActionIntentAllows(request, "process.terminate") {
 			t.Fatalf("negated process request authorized termination: %q", request)

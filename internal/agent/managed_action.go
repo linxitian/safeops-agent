@@ -20,11 +20,12 @@ var (
 	managedServiceNoArgsSchema = json.RawMessage(`{"type":"object","properties":{},"additionalProperties":false}`)
 	managedProcessSchema       = json.RawMessage(`{"type":"object","properties":{"pid":{"type":"integer","minimum":2,"maximum":4194304}},"required":["pid"],"additionalProperties":false}`)
 	processTargetPattern       = regexp.MustCompile(`^pid:([1-9][0-9]{0,9}):start:([0-9]{1,20})$`)
-	managedServiceNegative     = regexp.MustCompile(`(?:不要|别|不得|禁止|无需|不需|不应|不能|不可)(?:再|去|执行)?(?:重启|重新启动)|(?:do not|don't|dont|never|must not|should not|cannot|can't|without)(?:\s+\w+){0,3}\s+restart(?:ing)?\b|(?:no|avoid)\s+(?:service\s+)?restart(?:ing)?\b`)
-	managedServiceReadOnly     = regexp.MustCompile(`(?:如何|怎么|怎样)(?:安全地)?(?:重启|重新启动)|(?:重启|重新启动)(?:次数|计数|历史|记录|原因|影响|风险|步骤|方法|建议)|\bhow\s+to\s+restart\b|\brestart(?:ing|ed|s)?\s+(?:count|history|record|reason|impact|risk|steps?|procedure|recommendation|metrics?)\b`)
+	managedServiceNegative     = regexp.MustCompile(`(?:不要|别|不得|禁止|无需|不需|不应|不能|不可)[^。！？!?\n]{0,32}(?:重启|重新启动)|(?:do not|don't|dont|never|must not|should not|cannot|can't)[^.!?\n]{0,64}\brestart(?:ing)?\b|\bwithout[^.!?\n]{0,32}\brestarting\b|(?:no|avoid)\s+(?:service\s+)?restart(?:ing)?\b`)
+	managedServiceReadOnly     = regexp.MustCompile(`(?:如何|怎么|怎样)(?:安全地)?(?:重启|重新启动)|(?:重启|重新启动).{0,16}(?:次数|计数|历史|记录|原因|影响|风险|步骤|方法|建议)|\bhow\s+to\s+restart\b|\brestart(?:ing|ed|s)?\b.{0,32}\b(?:count|history|record|reason|impact|risk|steps?|procedure|recommendation|metrics?)\b`)
 	managedServiceChinese      = regexp.MustCompile(`(?:^|[，,;；。.!]\s*|(?:请|帮我|然后|之后|并|再|确认后|必要时|需要时|安全时|检查后))\s*(?:重启|重新启动)\s*[\p{Han}a-z0-9_.@-]`)
 	managedServiceEnglish      = regexp.MustCompile(`(?:^|[;,.]\s*|\b(?:please|then|and|also)\s+|\b(?:can|could|would|will)\s+you\s+|\bi\s+(?:want|need)\s+you\s+to\s+)restart\s+(?:the\s+)?[a-z0-9_.@-]+`)
-	managedProcessNegative     = regexp.MustCompile(`(?:不要|别|不得|禁止|无需|不需|不应|不能|不可)(?:再|去|执行)?(?:终止|结束|停止|杀掉|杀死|杀)(?:该|这个|目标)?进程|(?:do not|don't|dont|never|must not|should not|cannot|can't|without)(?:\s+\w+){0,3}\s+(?:terminate|kill|stop)(?:ing)?\b|(?:no|avoid)\s+(?:process\s+)?(?:termination|killing|stopping)\b`)
+	managedProcessNegative     = regexp.MustCompile(`(?:不要|别|不得|禁止|无需|不需|不应|不能|不可)[^。！？!?\n]{0,32}(?:终止|结束|停止|杀掉|杀死|杀)(?:该|这个|目标)?进程|(?:do not|don't|dont|never|must not|should not|cannot|can't)[^.!?\n]{0,64}\b(?:terminate|kill|stop)(?:ing)?\b|\bwithout[^.!?\n]{0,32}\b(?:terminating|killing|stopping)\b|(?:no|avoid)\s+(?:process\s+)?(?:termination|killing|stopping)\b`)
+	managedProcessReadOnly     = regexp.MustCompile(`(?:如何|怎么|怎样)(?:安全地)?(?:终止|结束|停止|杀掉|杀死).{0,8}进程|(?:终止|结束|停止|杀掉|杀死).{0,16}(?:历史|记录|原因|影响|风险|步骤|方法|建议)|\bhow\s+to\s+(?:terminate|kill|stop)\b|\b(?:terminate|kill|stop)(?:ping|ped|s)?\b.{0,32}\b(?:history|record|reason|impact|risk|steps?|procedure|recommendation|metrics?)\b`)
 	managedProcessChinese      = regexp.MustCompile(`(?:^|[，,;；。.!]\s*|(?:请|帮我|然后|之后|并|再|确认后|必要时|检查后))\s*(?:终止|结束|停止|杀掉|杀死)\s*(?:该|这个|目标)?进程`)
 	managedProcessEnglish      = regexp.MustCompile(`(?:^|[;,.]\s*|\b(?:please|then|and|also)\s+|\b(?:can|could|would|will)\s+you\s+|\bi\s+(?:want|need)\s+you\s+to\s+)(?:terminate|kill|stop)\s+(?:the\s+)?(?:process|pid\b|[a-z0-9_.@-]+\s+process\b)`)
 )
@@ -246,7 +247,7 @@ func managedActionIntentAllows(request, tool string) bool {
 		}
 		return managedServiceChinese.MatchString(request) || managedServiceEnglish.MatchString(request)
 	case "process.terminate":
-		if managedProcessNegative.MatchString(request) {
+		if managedProcessNegative.MatchString(request) || managedProcessReadOnly.MatchString(request) {
 			return false
 		}
 		return managedProcessChinese.MatchString(request) || managedProcessEnglish.MatchString(request)

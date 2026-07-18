@@ -22,6 +22,9 @@ func TestWebRootServesAssetsAndSPAFallback(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(root, "assets", "app.js"), []byte("export {}"), 0o644); err != nil {
 		t.Fatal(err)
 	}
+	if err := os.WriteFile(filepath.Join(root, "favicon.svg"), []byte(`<svg xmlns="http://www.w3.org/2000/svg"/>`), 0o644); err != nil {
+		t.Fatal(err)
+	}
 	server := New(nil, registry.New(registry.Config{}), nil, nil, WithWebRoot(root))
 
 	for _, requestPath := range []string{"/", "/sessions/ses-demo"} {
@@ -50,6 +53,23 @@ func TestWebRootServesAssetsAndSPAFallback(t *testing.T) {
 	server.Handler().ServeHTTP(asset, httptest.NewRequest(http.MethodGet, "/assets/app.js", nil))
 	if asset.Code != http.StatusOK || asset.Body.String() != "export {}" {
 		t.Fatalf("asset returned %d %q", asset.Code, asset.Body.String())
+	}
+
+	favicon := httptest.NewRecorder()
+	server.Handler().ServeHTTP(favicon, httptest.NewRequest(http.MethodGet, "/favicon.svg", nil))
+	if favicon.Code != http.StatusOK || !strings.Contains(favicon.Body.String(), "<svg") {
+		t.Fatalf("favicon returned %d %q", favicon.Code, favicon.Body.String())
+	}
+	if contentType := favicon.Header().Get("Content-Type"); !strings.Contains(contentType, "image/svg+xml") {
+		t.Fatalf("favicon content type = %q", contentType)
+	}
+	for header, want := range map[string]string{
+		"Content-Security-Policy": "default-src 'self'",
+		"X-Content-Type-Options":  "nosniff",
+	} {
+		if got := favicon.Header().Get(header); !strings.Contains(got, want) {
+			t.Fatalf("favicon header %s = %q, want it to contain %q", header, got, want)
+		}
 	}
 
 	missing := httptest.NewRecorder()

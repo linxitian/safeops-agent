@@ -163,4 +163,18 @@ func TestConcurrentAdmissionsCannotExceedTaskRetentionLimit(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
+	if !terminal(tasks[0].State) {
+		t.Fatalf("admitted task did not reach a terminal state: %s", tasks[0].State)
+	}
+	cleanupDeadline := time.Now().Add(time.Second)
+	for time.Now().Before(cleanupDeadline) {
+		server.sessionMu.Lock()
+		running := len(server.runningSessions)
+		server.sessionMu.Unlock()
+		if running == 0 && len(server.taskSlots) == 0 {
+			return
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	t.Fatal("admitted task goroutine did not release its session and concurrency reservations")
 }

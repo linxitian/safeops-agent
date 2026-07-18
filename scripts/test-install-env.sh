@@ -114,6 +114,10 @@ if safeops_install_version "$version_source" "$version_link_destination" "$versi
 fi
 assert_file_equals "$expected" "$version_link_target"
 
-grep -Fq 'safeops_install_version "$bundle_root/VERSION" /opt/safeops/VERSION root root' "$repo_root/deploy/install.sh" || fail_test "installer does not install verified VERSION metadata"
+version_install_line="$(grep -nF 'safeops_install_version "$bundle_root/VERSION" /opt/safeops/VERSION root root' "$repo_root/deploy/install.sh" | cut -d: -f1)"
+health_gate_line="$(grep -nF 'if curl --fail --silent --show-error --max-time 3 "$health_url"' "$repo_root/deploy/install.sh" | cut -d: -f1)"
+[[ -n "$version_install_line" ]] || fail_test "installer does not install verified VERSION metadata"
+[[ -n "$health_gate_line" ]] || fail_test "installer health gate is missing"
+[[ "$version_install_line" -gt "$health_gate_line" ]] || fail_test "installer publishes VERSION before the release is healthy"
 
 echo "install environment regression passed"

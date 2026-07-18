@@ -68,7 +68,6 @@ install -d -m 0750 -o safeops -g safeops \
   /var/lib/safeops/traces /var/lib/safeops/lab /var/lib/safeops/lab/config
 chmod 2750 /var/lib/safeops/approvals
 install -d -m 0750 -o root -g safeops /var/lib/safeops/quarantine /run/safeops
-safeops_install_version "$bundle_root/VERSION" /opt/safeops/VERSION root root || fail "could not install release version metadata"
 
 for binary in "$bundle_root"/bin/*; do
   [[ -f "$binary" ]] || continue
@@ -114,7 +113,8 @@ systemctl restart safeops-server.service || fail "safeops-server failed to start
 health_url="http://127.0.0.1:8080/healthz"
 for _ in {1..30}; do
   if curl --fail --silent --show-error --max-time 3 "$health_url" >/dev/null; then
-    version="$(tr -d '\r\n' < "$bundle_root/VERSION")"
+    safeops_install_version "$bundle_root/VERSION" /opt/safeops/VERSION root root || fail "could not publish healthy release version metadata"
+    version="$(tr -d '\r\n' < /opt/safeops/VERSION)"
     echo "SafeOps $version installed successfully; health: $health_url"
     echo "Executor mode is configured in /etc/safeops/safeops.env; Lab units are installed but not enabled."
     exit 0

@@ -19,7 +19,7 @@ Updated: 2026-07-18
 | M10 Full durable context/resume | TARGET_VERIFIED | Target state survived repeated installs; Session-selected resources drove later turns and a previously nonterminal slow-provider task recovered durably to `FAILED` with lease release |
 | M11 Multi-turn file demo | TARGET_VERIFIED | Merged target release completed discovery, scoped recommendation, exact third-file quarantine and exact-record restore; all four Traces `VALID` and original file identity restored |
 | M12 CPU/disk remediation demos | TARGET_VERIFIED | Official target CPU task completed 7/7 and disk/log task 8/8 with fresh snapshots, approvals, post-verification and no physical-space-reclaimed overclaim |
-| M13 Full Chinese UI | TESTED | Six Chinese pages, conversation-first sidebar history, search/rename/archive, approval/result cards, RCA/audit projections, typed SSE replay/gap/snapshot sync, strict CSP, component navigation/unsafe-Markdown and serious accessibility checks pass |
+| M13 Full Chinese UI | TARGET_VERIFIED | Installed `2b26de4` target console passed a real Chrome traversal of all eight views: 39 HTTP 200 responses, no browser/network errors or horizontal overflow, and no unnamed DOM/Accessibility interactive controls |
 | M14 Target compatibility | TARGET_VERIFIED | Audited reports identify Kylin V11/loong64, glibc 2.38 and systemd 255; 8/8 MCP discovery/ping and all 39 native tool calls pass, with WARN only for optional target `git`/`go` commands |
 | M15 Benchmarks | TESTED | Six `safeops-bench` suites, 16 measured metrics, fixed JSON/Markdown artifacts and full milestone gates pass on Ubuntu |
 | M16 Release/deploy | TARGET_VERIFIED | Target checksum/install/start/health/reinstall pass; default uninstall removed binaries/config/units while 140 durable file hashes and 153 metadata rows stayed identical, then root-only environment/HMAC restoration preserved continuity |
@@ -51,6 +51,7 @@ Updated: 2026-07-18
 - Added source-backed Chinese Overview, Tool, Safety, RCA and Audit pages; conversation-first sidebar history, session search/rename/archive/restore; typed SSE IDs with duplicate suppression, bounded replay and durable gap/snapshot recovery.
 - Added body-free JSONL runtime access logging under the server data directory for request method/path/status/duration/bytes metadata.
 - Added frontend component navigation, unsafe-Markdown escaping and automated serious/critical accessibility checks; static Web responses enforce a strict self-only CSP and related browser security headers.
+- Added an explicit bundled SVG favicon and verified the installed target-served Console, Overview, Tool, Safety, RCA, Audit, Allowlist and LLM views through real Chrome without browser/network errors, overflow or unnamed interactive controls.
 - Added and audited `targetctl` probe/test/report/doctor on the official Kylin V11/loong64 target. Generated reports correctly remain `target_verified=false`; the separate maintainer audit is recorded in `docs/target-verification-2026-07-18.md`.
 - Extended `targetctl test` with a unique, time-bounded official-SDK call for every discovered Tool, dynamic targetctl PID checks, non-secret Lab file/config fixtures, dependency capture, failure aggregation and redacted/bounded error details; successful payloads are not persisted.
 - Corrected the development and installed `mcp-config` manifests so the comma-separated `/etc/safeops,/var/lib/safeops/lab/config` value remains one argument; regression tests load both manifests and assert both allowlist roots.
@@ -96,7 +97,8 @@ Updated: 2026-07-18
 | Restart restores completed Session/Task/Trace | PASS |
 | Complete Trace audit | PASS; 48 concurrent appends, exact lifecycle events, DecisionRecord fields, redaction, crash full/partial tail recovery and modification/delete/reorder rejection |
 | Typed SSE recovery | PASS; monotonic IDs, recent replay, duplicate suppression, truncation/restart gap plus durable Task/Trace resync |
-| Chinese Web component/accessibility | PASS; all six pages, conversation-first sidebar history, source-backed projections, unsafe Markdown escaping and no serious/critical automated violations |
+| Chinese Web component/accessibility | PASS; all eight views, conversation-first sidebar history, source-backed projections, unsafe Markdown escaping and no serious/critical automated violations |
+| Installed target Web real-browser audit | PASS; eight views, 39/39 HTTP 200 responses, zero console/log/exception/loading failures, zero horizontal overflow and zero unnamed DOM/Chrome AX interactive controls |
 | Official Kylin VM runtime | TARGET_VERIFIED; audited native reports and installed workflow evidence on release `1a10880` |
 | `make` entry points on current host | NOT_RUN; `make` is absent, exact equivalent commands passed |
 | Race detector | NOT_RUN; conflicts with default `CGO_ENABLED=0` and was not used as evidence |
@@ -119,7 +121,7 @@ Request: `查看 CPU 和内存。`
 - Every one of the 39 MCP read Tools now has a successful official Kylin native structured-call check; no Tool remains discovery-only in the audited matrix.
 - Port, CPU, disk/log and multi-turn file Demos are now `TARGET_VERIFIED`; exact task and Trace identifiers are in `docs/target-verification-2026-07-18.md`.
 - Kylin V11/LoongArch64 compatibility and release/deployment are `TARGET_VERIFIED`; the documented root-only backup is required only when operator configuration and approval-signing identity must survive the intentional `/etc` removal.
-- OS depth perception and the six-page Chinese Web remain `TESTED`: native workflows cover their used paths, but not every Collector adapter or a systematic target-browser traversal.
+- OS depth perception remains `TESTED` because not every Collector adapter has target execution evidence; the eight-view Chinese Web is now `TARGET_VERIFIED` by the installed target real-browser audit.
 - Benchmark/evaluation remains `TESTED` on controlled development-host suites and is not promoted using unrelated target evidence.
 
 ## Currently complete demo scenarios
@@ -132,14 +134,14 @@ The original Ubuntu CPU/memory Web vertical slice remains complete. The official
 - bounded disk/log-growth recovery, 8/8 with separate process/file approvals and honest quarantine semantics;
 - a four-turn file conversation that discovers three files, keeps a follow-up within those resources, quarantines the third and restores the exact record.
 
-All named target workflows have `VALID` hash-chained Traces. The six-page UI remains `TESTED`, not `TARGET_VERIFIED`, because a systematic target-browser traversal/accessibility capture was not performed.
+All named target workflows have `VALID` hash-chained Traces. The eight-view UI is `TARGET_VERIFIED` by a systematic real-Chrome traversal of the installed target assets and APIs with DOM and Chrome Accessibility Tree capture.
 
 ## Real blockers
 
-- A systematic target-browser traversal of all six pages and target-side accessibility capture remains outstanding.
 - The target image lacks optional `git` and `go` commands. They are not release runtime dependencies, but their absence remains visible as bounded report warnings.
 - `make` is absent on the Ubuntu development host, but equivalent direct commands pass, so this does not block development.
+- Target execution evidence is still incomplete for every Collector adapter and for the benchmark suites.
 
 ## Human action required now
 
-The next manual evidence priority is a recorded traversal of all six installed Web pages. Provider credentials, official target reports and data-preserving uninstall/reinstall are no longer blockers.
+The next evidence priority is target execution of the remaining Collector adapters, followed by a bounded target benchmark run. Provider credentials, official target reports, Web traversal and data-preserving uninstall/reinstall are no longer blockers.

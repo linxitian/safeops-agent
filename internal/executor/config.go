@@ -224,7 +224,7 @@ func (m *ConfigManager) BrowsePath(path, mode string, limit int) (PathBrowser, e
 	if mode == "write" {
 		roots = maximumRoots
 	}
-	root, relative, err := openBoundedRoot(clean, roots)
+	root, rootPath, relative, err := openBoundedRoot(clean, roots)
 	if err != nil {
 		return PathBrowser{}, fmt.Errorf("path %s is outside %s roots", clean, mode)
 	}
@@ -243,7 +243,7 @@ func (m *ConfigManager) BrowsePath(path, mode string, limit int) (PathBrowser, e
 	}
 	info, err := root.Stat(relative)
 	if err != nil {
-		if mode == "write" && os.IsNotExist(err) && boundedPathMissing(root, relative) {
+		if mode == "write" && os.IsNotExist(err) && boundedPathMissing(rootPath, relative) {
 			browser.WriteRootMissing = true
 			return browser, nil
 		}
@@ -292,7 +292,7 @@ func (m *ConfigManager) CreateDirectory(parent, name string) (PathBrowser, error
 	if !safeDirectoryName(name) {
 		return PathBrowser{}, fmt.Errorf("directory name is invalid")
 	}
-	root, relativeParent, err := openBoundedRoot(parent, maximumRoots)
+	root, _, relativeParent, err := openBoundedRoot(parent, maximumRoots)
 	if err != nil {
 		return PathBrowser{}, fmt.Errorf("parent %s is outside writable administrator-defined roots", parent)
 	}
@@ -522,7 +522,7 @@ func withinAny(path string, roots []string) bool {
 	return false
 }
 
-func openBoundedRoot(path string, roots []string) (*os.Root, string, error) {
+func openBoundedRoot(path string, roots []string) (*os.Root, string, string, error) {
 	clean := filepath.Clean(path)
 	selected := ""
 	for _, candidate := range roots {
@@ -533,38 +533,43 @@ func openBoundedRoot(path string, roots []string) (*os.Root, string, error) {
 		selected = candidate
 	}
 	if selected == "" {
-		return nil, "", errors.New("path is outside configured roots")
+		return nil, "", "", errors.New("path is outside configured roots")
 	}
 	relative, err := filepath.Rel(selected, clean)
 	if err != nil {
-		return nil, "", err
+		return nil, "", "", err
 	}
 	root, err := os.OpenRoot(selected)
 	if err != nil {
-		return nil, "", err
+		return nil, "", "", err
 	}
-	return root, relative, nil
+	return root, selected, relative, nil
 }
 
-func boundedPathMissing(root *os.Root, relative string) bool {
-	current := filepath.Clean(relative)
-	for {
-		info, err := root.Lstat(current)
-		if err == nil {
-			if info.Mode()&os.ModeSymlink != 0 {
-				info, err = root.Stat(current)
-			}
-			return err == nil && info.IsDir()
-		}
-		if !os.IsNotExist(err) {
-			return false
-		}
-		parent := filepath.Dir(current)
-		if parent == current {
-			return false
-		}
-		current = parent
+func boundedPathMissing(rootPath, relative string) bool {
+	relative = filepath.Clean(relative)
+	if relative == "." {
+		return false
 	}
+	current := filepath.Clean(rootPath)
+	parts := strings.Split(relative, string(filepath.Separator))
+	for index, part := range parts {
+		if part == "" || part == "." || part == ".." {
+			return false
+		}
+		current = filepath.Join(current, part)
+		info, err := os.Lstat(current)
+		if os.IsNotExist(err) {
+			return true
+		}
+		if err != nil || info.Mode()&os.ModeSymlink != 0 {
+			return false
+		}
+		if index < len(parts)-1 && !info.IsDir() {
+			return false
+		}
+	}
+	return false
 }
 
 func safeDirectoryName(name string) bool {

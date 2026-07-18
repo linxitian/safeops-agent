@@ -33,6 +33,25 @@ func detectDiskRecovery(request string) bool {
 	return mentionsStorage && mentionsGrowth && requestsAction
 }
 
+func fixedLabReadScopeCompatible(request string, allowedPaths ...string) bool {
+	authorized, excluded := requestPathScopes(request)
+	allowed := make(map[string]bool, len(allowedPaths))
+	for _, path := range normalizedUniquePaths(allowedPaths) {
+		allowed[path] = true
+	}
+	for _, path := range authorized {
+		if !allowed[path] {
+			return false
+		}
+	}
+	for _, path := range excluded {
+		if pathWithinScope(demoLabRoot, path) || pathWithinScope(path, demoLabRoot) {
+			return false
+		}
+	}
+	return true
+}
+
 func (o *Orchestrator) runDiskRecovery(ctx context.Context, value task.Task, emit EventSink) (task.Task, error) {
 	if o.Actions == nil || o.ActionTargets == nil || o.FileTargets == nil || o.Registry == nil || o.Safety == nil || o.Trace == nil {
 		return value, errors.New("disk recovery requires MCP, safety, approvals, process/file snapshots, and trace")

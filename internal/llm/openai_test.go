@@ -57,6 +57,9 @@ func TestDecisionSystemPromptConstrainsAmbiguousFollowupsToSelectedResources(t *
 	if !strings.Contains(decisionSystemPrompt, "Simplified Chinese") || !strings.Contains(decisionSystemPrompt, "final_answer") {
 		t.Fatal("system prompt does not require Chinese user-facing answers")
 	}
+	if !strings.Contains(decisionSystemPrompt, "local_read_scope is an authoritative local-policy boundary") || !strings.Contains(decisionSystemPrompt, "excluded_paths") || !strings.Contains(decisionSystemPrompt, "never authorizes expanding to another root") || !strings.Contains(decisionSystemPrompt, "guard_feedback") {
+		t.Fatal("system prompt does not enforce local read scope or bounded guard feedback")
+	}
 }
 
 func TestOpenAICompatibleUsesExtendedDefaultTimeout(t *testing.T) {

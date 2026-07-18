@@ -63,12 +63,30 @@ type SessionContext struct {
 	SelectedResources []string         `json:"selected_resources,omitempty"`
 }
 
+type ReadScope struct {
+	ResourceType    string   `json:"resource_type"`
+	AuthorizedPaths []string `json:"authorized_paths"`
+	ExcludedPaths   []string `json:"excluded_paths,omitempty"`
+	Source          string   `json:"source"`
+}
+
+type GuardFeedback struct {
+	Code            string   `json:"code"`
+	Summary         string   `json:"summary"`
+	Tool            string   `json:"tool"`
+	AttemptedPath   string   `json:"attempted_path,omitempty"`
+	AuthorizedPaths []string `json:"authorized_paths,omitempty"`
+	ExcludedPaths   []string `json:"excluded_paths,omitempty"`
+}
+
 type DecisionRequest struct {
 	Objective       string                    `json:"objective"`
 	OriginalRequest string                    `json:"original_request"`
 	SessionContext  *SessionContext           `json:"session_context,omitempty"`
 	Tools           []ToolCapability          `json:"tools"`
 	ManagedActions  []ManagedActionCapability `json:"managed_actions,omitempty"`
+	LocalReadScope  *ReadScope                `json:"local_read_scope,omitempty"`
+	GuardFeedback   []GuardFeedback           `json:"guard_feedback,omitempty"`
 	Observations    []Observation             `json:"observations"`
 	Iteration       int                       `json:"iteration"`
 	ToolCalls       int                       `json:"tool_calls"`

@@ -15,7 +15,7 @@ const (
 	maxRuntimeGuardFeedback = 4
 )
 
-var requestAbsolutePath = regexp.MustCompile(`/[^\s"'，。；;]+`)
+var requestAbsolutePath = regexp.MustCompile("/[^\\s\\\"'`，。；;！？!?]+")
 
 type generalReadScope struct {
 	ResourceType    string
@@ -147,7 +147,7 @@ func normalizedUniquePaths(values []string) []string {
 	seen := map[string]bool{}
 	paths := make([]string, 0, len(values))
 	for _, value := range values {
-		value = strings.TrimRight(strings.TrimSpace(value), ".,，。；;：:)]}）】》>")
+		value = strings.TrimRight(strings.TrimSpace(value), ".,!?，。；;！？：:)]}）】》>`")
 		if !filepath.IsAbs(value) {
 			continue
 		}

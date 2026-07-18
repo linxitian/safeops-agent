@@ -47,6 +47,12 @@ func TestDeriveGeneralReadScopeFromRequestAndSelectedResources(t *testing.T) {
 	if len(englishClauses) != 1 || englishClauses[0] != "/var/log" {
 		t.Fatalf("ASCII punctuation did not isolate a positive path clause: %+v", englishClauses)
 	}
+	for _, question := range []string{"Can you inspect /var/log?", "请检查 /var/log？", "inspect `/var/log`"} {
+		paths := requestScopePaths(question)
+		if len(paths) != 1 || paths[0] != "/var/log" {
+			t.Fatalf("terminal question or markdown punctuation contaminated the path for %q: %+v", question, paths)
+		}
+	}
 	excluded := deriveGeneralReadScope("inspect /var/log except /var/log/private", nil)
 	if excluded == nil || len(excluded.AuthorizedPaths) != 1 || excluded.AuthorizedPaths[0] != "/var/log" || len(excluded.ExcludedPaths) != 1 || excluded.ExcludedPaths[0] != "/var/log/private" {
 		t.Fatalf("a descendant exclusion was not preserved: %+v", excluded)

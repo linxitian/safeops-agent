@@ -72,7 +72,6 @@ assert_file_equals "$expected" "$target"
 version_dir="$test_root/version"
 mkdir -p "$version_dir"
 version_source="$version_dir/bundle-version"
-version_destination="$version_dir/installed-version"
 version_owner="$(id -un)"
 version_group="$(id -gn)"
 printf '%s\n' 'release-1.2.3+test' > "$version_source"
@@ -83,7 +82,9 @@ fi
 if safeops_validate_version_identifier 'release/invalid' >/dev/null 2>&1; then
   fail_test "invalid release identifier was accepted"
 fi
+unset version_destination
 safeops_validate_version_source "$version_source"
+version_destination="$version_dir/installed-version"
 safeops_install_version "$version_source" "$version_destination" "$version_owner" "$version_group"
 assert_file_equals "$version_source" "$version_destination"
 [[ "$(stat -c %a "$version_destination")" == "644" ]] || fail_test "installed version mode is not 0644"

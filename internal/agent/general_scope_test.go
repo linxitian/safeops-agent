@@ -36,9 +36,16 @@ func TestDeriveGeneralReadScopeFromRequestAndSelectedResources(t *testing.T) {
 	if expanded := deriveGeneralReadScope("哪些服务异常？", selected.AuthorizedPaths); expanded != nil {
 		t.Fatalf("an explicit service topic was incorrectly treated as a file follow-up: %+v", expanded)
 	}
+	if followup := deriveGeneralReadScope("which of them is important?", selected.AuthorizedPaths); followup == nil || followup.Source != "session.selected_resources" {
+		t.Fatalf("an English file follow-up was confused with the substring port: %+v", followup)
+	}
 	negated := requestScopePaths("只看 SafeOps Lab，不要查看 /var/log，也不要读取 /etc")
 	if len(negated) != 1 || negated[0] != safeOpsLabReadRoot {
 		t.Fatalf("negated paths expanded the authorized scope: %+v", negated)
+	}
+	englishClauses := requestScopePaths("don't read /etc, read /var/log")
+	if len(englishClauses) != 1 || englishClauses[0] != "/var/log" {
+		t.Fatalf("ASCII punctuation did not isolate a positive path clause: %+v", englishClauses)
 	}
 	if pathWithinScope("/var/lib/safeops/lab", "/var/lib/safeops/lab-escape/log") {
 		t.Fatal("lexical sibling escaped the authorized scope")

@@ -62,7 +62,7 @@ func requestScopePaths(request string) []string {
 
 func readScopeMentionNegated(request string, mentionStart int) bool {
 	prefix := strings.ToLower(request[:mentionStart])
-	if separator := strings.LastIndexAny(prefix, "，。；;\n"); separator >= 0 {
+	if separator := strings.LastIndexAny(prefix, ",.!?:，。；;！？：\n"); separator >= 0 {
 		prefix = prefix[separator+1:]
 	}
 	for _, marker := range []string{
@@ -80,9 +80,13 @@ func isAmbiguousResourceFollowup(request string) bool {
 	lower := strings.ToLower(strings.TrimSpace(request))
 	for _, marker := range []string{
 		"这些", "上述", "前面", "刚才", "其中", "第一个", "第二个", "第三个", "第四个", "第五个", "最后一个", "哪个", "哪些", "该文件", "这个文件", "该资源", "处理它", "检查它", "查看它", "它呢", "它的",
-		"these files", "those files", "selected file", "selected resource", "previous file", "which file", "which one", "which should", "them",
 	} {
 		if strings.Contains(lower, marker) {
+			return true
+		}
+	}
+	for _, marker := range []string{"these files", "those files", "selected file", "selected resource", "previous file", "which file", "which one", "which should", "them"} {
+		if containsASCIIPhrase(lower, marker) {
 			return true
 		}
 	}
@@ -91,14 +95,39 @@ func isAmbiguousResourceFollowup(request string) bool {
 
 func mentionsExplicitNonFileTopic(request string) bool {
 	lower := strings.ToLower(request)
-	for _, marker := range []string{
-		"cpu", "内存", "负载", "服务", "端口", "进程", "网络", "journal", "systemd", "service", "port", "process", "network", "memory", "load average",
-	} {
+	for _, marker := range []string{"内存", "负载", "服务", "端口", "进程", "网络"} {
 		if strings.Contains(lower, marker) {
 			return true
 		}
 	}
+	for _, marker := range []string{"cpu", "journal", "systemd", "service", "port", "process", "network", "memory", "load average"} {
+		if containsASCIIPhrase(lower, marker) {
+			return true
+		}
+	}
 	return false
+}
+
+func containsASCIIPhrase(value, phrase string) bool {
+	for offset := 0; offset <= len(value)-len(phrase); {
+		index := strings.Index(value[offset:], phrase)
+		if index < 0 {
+			return false
+		}
+		start := offset + index
+		end := start + len(phrase)
+		beforeOK := start == 0 || !isASCIIWordByte(value[start-1])
+		afterOK := end == len(value) || !isASCIIWordByte(value[end])
+		if beforeOK && afterOK {
+			return true
+		}
+		offset = start + 1
+	}
+	return false
+}
+
+func isASCIIWordByte(value byte) bool {
+	return value >= 'a' && value <= 'z' || value >= '0' && value <= '9' || value == '_'
 }
 
 func normalizedUniquePaths(values []string) []string {

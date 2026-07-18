@@ -41,13 +41,13 @@ func (o *Orchestrator) runGeneral(ctx context.Context, value task.Task, emit Eve
 
 	fresh := value.IntentType == ""
 	if fresh {
-		value.IntentType = "general_read_operation"
+		value.IntentType = "general_bounded_operation"
 		value.Transition(task.Planning)
 		initializeRuntime(&value.Runtime, time.Now().UTC())
 		if err := o.Store.SaveTask(ctx, value); err != nil {
 			return value, err
 		}
-		if err := o.appendTrace(ctx, value, trace.IntentParsed, map[string]any{"intent_type": value.IntentType, "provider": "openai-compatible", "effect_scope": "discovered read MCP tools only"}); err != nil {
+		if err := o.appendTrace(ctx, value, trace.IntentParsed, map[string]any{"intent_type": value.IntentType, "provider": "openai-compatible", "effect_scope": "discovered read MCP tools plus approval-bound fixed managed actions"}); err != nil {
 			return value, err
 		}
 		planRecord := map[string]any{"strategy": "bounded ReAct / Plan-Execute", "max_iterations": value.Runtime.MaxIterations, "max_tool_calls": value.Runtime.MaxToolCalls, "deadline_at": value.Runtime.DeadlineAt, "completion_criteria": "at least one MCP evidence reference and a structured final decision"}

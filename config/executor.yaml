@@ -5,9 +5,11 @@ read_file_roots:
   - /
 allowed_file_roots:
   - /home
+  - /var/lib/safeops/lab
   - /var/lib/safeops/quarantine
 lab_file_roots:
   - /home
+  - /var/lib/safeops/lab
 quarantine_root: /var/lib/safeops/quarantine
 allowed_process_executables:
   - /opt/safeops/bin/safeops-port-holder

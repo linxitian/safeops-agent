@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"gopkg.in/yaml.v3"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -223,9 +224,11 @@ func (m *ConfigManager) BrowsePath(path, mode string, limit int) (PathBrowser, e
 	if mode == "write" {
 		roots = maximumRoots
 	}
-	if !withinAny(clean, roots) {
+	root, relative, err := openBoundedRoot(clean, roots)
+	if err != nil {
 		return PathBrowser{}, fmt.Errorf("path %s is outside %s roots", clean, mode)
 	}
+	defer root.Close()
 	browser := PathBrowser{
 		Path:           clean,
 		Mode:           mode,
@@ -235,10 +238,10 @@ func (m *ConfigManager) BrowsePath(path, mode string, limit int) (PathBrowser, e
 		CanSelectRead:  withinAny(clean, config.ReadFileRoots),
 		CanSelectWrite: withinAny(clean, maximumRoots),
 	}
-	if parent := filepath.Dir(clean); parent != clean {
+	if parent := filepath.Dir(clean); parent != clean && withinAny(parent, roots) {
 		browser.Parent = parent
 	}
-	info, err := os.Stat(clean)
+	info, err := root.Stat(relative)
 	if err != nil {
 		if mode == "write" && os.IsNotExist(err) {
 			browser.WriteRootMissing = true
@@ -250,12 +253,17 @@ func (m *ConfigManager) BrowsePath(path, mode string, limit int) (PathBrowser, e
 		return browser, fmt.Errorf("path is not a directory")
 	}
 	browser.CanCreateChild = mode == "write" && browser.CanSelectWrite
-	entries, err := os.ReadDir(clean)
+	directory, err := root.Open(relative)
 	if err != nil {
 		return browser, err
 	}
+	defer directory.Close()
+	entries, err := directory.ReadDir(limit + 1)
+	if err != nil && !errors.Is(err, io.EOF) {
+		return browser, err
+	}
 	browser.Truncated = len(entries) > limit
-	if len(entries) > limit {
+	if browser.Truncated {
 		entries = entries[:limit]
 	}
 	for _, entry := range entries {
@@ -284,17 +292,27 @@ func (m *ConfigManager) CreateDirectory(parent, name string) (PathBrowser, error
 	if !safeDirectoryName(name) {
 		return PathBrowser{}, fmt.Errorf("directory name is invalid")
 	}
-	if !withinAny(parent, maximumRoots) {
+	root, relativeParent, err := openBoundedRoot(parent, maximumRoots)
+	if err != nil {
 		return PathBrowser{}, fmt.Errorf("parent %s is outside writable administrator-defined roots", parent)
+	}
+	defer root.Close()
+	info, err := root.Stat(relativeParent)
+	if err != nil {
+		return PathBrowser{}, err
+	}
+	if !info.IsDir() {
+		return PathBrowser{}, fmt.Errorf("parent path is not a directory")
 	}
 	path := filepath.Join(parent, name)
 	if !withinAny(path, maximumRoots) {
 		return PathBrowser{}, fmt.Errorf("directory path escapes writable roots")
 	}
-	if err := os.Mkdir(path, 0o750); err != nil {
+	relativePath := filepath.Join(relativeParent, name)
+	if err := root.Mkdir(relativePath, 0o750); err != nil {
 		return PathBrowser{}, err
 	}
-	if err := syncConfigDirectory(parent); err != nil {
+	if err := syncRootDirectory(root, relativeParent); err != nil {
 		return PathBrowser{}, err
 	}
 	return m.BrowsePath(path, "write", 200)
@@ -504,6 +522,30 @@ func withinAny(path string, roots []string) bool {
 	return false
 }
 
+func openBoundedRoot(path string, roots []string) (*os.Root, string, error) {
+	clean := filepath.Clean(path)
+	selected := ""
+	for _, candidate := range roots {
+		candidate = filepath.Clean(candidate)
+		if !sameOrInside(clean, candidate) || len(candidate) <= len(selected) {
+			continue
+		}
+		selected = candidate
+	}
+	if selected == "" {
+		return nil, "", errors.New("path is outside configured roots")
+	}
+	relative, err := filepath.Rel(selected, clean)
+	if err != nil {
+		return nil, "", err
+	}
+	root, err := os.OpenRoot(selected)
+	if err != nil {
+		return nil, "", err
+	}
+	return root, relative, nil
+}
+
 func safeDirectoryName(name string) bool {
 	if name == "" || name == "." || name == ".." || len(name) > 128 {
 		return false
@@ -518,6 +560,18 @@ func sameOrInside(path, root string) bool {
 
 func syncConfigDirectory(directory string) error {
 	dir, err := os.Open(directory)
+	if err != nil {
+		return err
+	}
+	if err := dir.Sync(); err != nil {
+		_ = dir.Close()
+		return err
+	}
+	return dir.Close()
+}
+
+func syncRootDirectory(root *os.Root, directory string) error {
+	dir, err := root.Open(directory)
 	if err != nil {
 		return err
 	}

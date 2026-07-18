@@ -440,6 +440,55 @@ func TestGeneralRuntimeRejectsUnavailableManagedAction(t *testing.T) {
 	}
 }
 
+func TestManagedActionRequiresExplicitOperatorIntent(t *testing.T) {
+	if managedActionIntentAllows("检查 demo 服务状态", "service.restart") {
+		t.Fatal("read-only service request authorized a restart")
+	}
+	if !managedActionIntentAllows("检查后重启 demo 服务", "service.restart") {
+		t.Fatal("explicit service restart request was rejected")
+	}
+	if managedActionIntentAllows("查看进程详情", "process.terminate") {
+		t.Fatal("read-only process request authorized termination")
+	}
+	if !managedActionIntentAllows("确认后终止进程", "process.terminate") {
+		t.Fatal("explicit process termination request was rejected")
+	}
+}
+
+func TestManagedActionEvidenceRequiresExactStructuredIdentity(t *testing.T) {
+	serviceTarget := contracts.TargetRef{Type: "service", ID: "safeops-demo-web.service"}
+	serviceSnapshot := contracts.TargetSnapshot{Type: "service", ServiceName: serviceTarget.ID}
+	for name, observation := range map[string]task.RuntimeObservation{
+		"unrelated tool text": {Tool: "journal.query_unit", Result: json.RawMessage(`{"events":[{"message":"safeops-demo-web.service"}]}`), EvidenceRef: "trace://task/1"},
+		"recoverable failure": {Tool: "service.get_status", Result: json.RawMessage(`{"status":"error","error":"safeops-demo-web.service failed"}`), EvidenceRef: "trace://task/2"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			value := task.Task{EvidenceRefs: []string{observation.EvidenceRef}, Runtime: task.RuntimeCheckpoint{Observations: []task.RuntimeObservation{observation}}}
+			if managedActionEvidenceSupports(value, serviceTarget, serviceSnapshot) {
+				t.Fatal("unstructured or unrelated text authorized a service action")
+			}
+		})
+	}
+	serviceObservation := task.RuntimeObservation{Tool: "service.get_status", Result: json.RawMessage(`{"service":{"name":"safeops-demo-web.service","active_state":"failed"}}`), EvidenceRef: "trace://task/3"}
+	serviceValue := task.Task{EvidenceRefs: []string{serviceObservation.EvidenceRef}, Runtime: task.RuntimeCheckpoint{Observations: []task.RuntimeObservation{serviceObservation}}}
+	if !managedActionEvidenceSupports(serviceValue, serviceTarget, serviceSnapshot) {
+		t.Fatal("exact structured service identity was rejected")
+	}
+
+	processTarget := contracts.TargetRef{Type: "process", ID: "pid:42:start:99"}
+	processSnapshot := contracts.TargetSnapshot{Type: "process", PID: 42, StartTicks: 99}
+	separateObjects := task.RuntimeObservation{Tool: "process.list_top", Result: json.RawMessage(`{"processes":[{"pid":42,"start_ticks":98},{"pid":41,"start_ticks":99}]}`), EvidenceRef: "trace://task/4"}
+	processValue := task.Task{EvidenceRefs: []string{separateObjects.EvidenceRef}, Runtime: task.RuntimeCheckpoint{Observations: []task.RuntimeObservation{separateObjects}}}
+	if managedActionEvidenceSupports(processValue, processTarget, processSnapshot) {
+		t.Fatal("PID and start_ticks from different objects authorized process termination")
+	}
+	exactProcess := task.RuntimeObservation{Tool: "process.get_details", Result: json.RawMessage(`{"process":{"pid":42,"start_ticks":99}}`), EvidenceRef: "trace://task/5"}
+	processValue = task.Task{EvidenceRefs: []string{exactProcess.EvidenceRef}, Runtime: task.RuntimeCheckpoint{Observations: []task.RuntimeObservation{exactProcess}}}
+	if !managedActionEvidenceSupports(processValue, processTarget, processSnapshot) {
+		t.Fatal("exact structured process identity was rejected")
+	}
+}
+
 func TestDiscoveredSchemaValidationFailsClosed(t *testing.T) {
 	schema := json.RawMessage(`{"type":"object","properties":{"limit":{"type":"integer","minimum":1,"maximum":50}},"required":["limit"],"additionalProperties":false}`)
 	if err := validateToolArguments(schema, map[string]any{"limit": float64(10)}); err != nil {

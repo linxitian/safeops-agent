@@ -1,6 +1,7 @@
 package executor
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 	"testing"
@@ -121,5 +122,62 @@ func TestConfigManagerReloadsNarrowedRootsWithoutChangingMaximum(t *testing.T) {
 	}
 	if _, err := reloaded.UpdateManagedRoots([]string{root}); err == nil {
 		t.Fatal("persisted narrowing was allowed to expand beyond the administrator maximum")
+	}
+}
+
+func TestConfigManagerRejectsPathBrowserSymlinkEscapes(t *testing.T) {
+	root := t.TempDir()
+	readRoot := filepath.Join(root, "read")
+	writeRoot := filepath.Join(root, "write")
+	outside := filepath.Join(root, "outside")
+	quarantine := filepath.Join(root, "quarantine")
+	for _, directory := range []string{readRoot, writeRoot, outside, quarantine} {
+		if err := os.MkdirAll(directory, 0o750); err != nil {
+			t.Fatal(err)
+		}
+	}
+	readEscape := filepath.Join(readRoot, "escape")
+	writeEscape := filepath.Join(writeRoot, "escape")
+	if err := os.Symlink(outside, readEscape); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(outside, writeEscape); err != nil {
+		t.Fatal(err)
+	}
+	manager, err := NewConfigManager(filepath.Join(root, "state", "executor_allowlist.yaml"), Config{
+		ReadFileRoots:    []string{readRoot},
+		AllowedFileRoots: []string{writeRoot, quarantine},
+		LabFileRoots:     []string{writeRoot},
+		QuarantineRoot:   quarantine,
+	}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := manager.BrowsePath(readEscape, "read", 100); err == nil {
+		t.Fatal("read browser followed a symlink outside its configured root")
+	}
+	if _, err := manager.BrowsePath(writeEscape, "write", 100); err == nil {
+		t.Fatal("write browser followed a symlink outside its configured root")
+	}
+	if _, err := manager.CreateDirectory(writeEscape, "created-outside"); err == nil {
+		t.Fatal("directory creation followed a symlink outside its configured root")
+	}
+	if _, err := os.Stat(filepath.Join(outside, "created-outside")); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("escaped directory was created: %v", err)
+	}
+}
+
+func TestDeploymentConfigPreservesHomeAndSafeOpsLabWriteRoots(t *testing.T) {
+	config, err := LoadConfig(filepath.Join("..", "..", "config", "executor.yaml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, required := range []string{"/home", "/var/lib/safeops/lab"} {
+		if !withinAny(required, config.LabFileRoots) {
+			t.Fatalf("deployment lab_file_roots lost required managed root %s: %v", required, config.LabFileRoots)
+		}
+		if !withinAny(required, config.AllowedFileRoots) {
+			t.Fatalf("deployment allowed_file_roots lost required write root %s: %v", required, config.AllowedFileRoots)
+		}
 	}
 }

@@ -77,6 +77,9 @@ func (o *Orchestrator) prepareGeneralManagedAction(ctx context.Context, value ta
 	if target.Type != capability.TargetType {
 		return value, fmt.Errorf("managed action %s requires target type %s", capability.Name, capability.TargetType)
 	}
+	if !managedActionIntentAllows(value.OriginalRequest, capability.Name) {
+		return value, fmt.Errorf("operator request does not explicitly authorize managed action %s", capability.Name)
+	}
 	arguments := cloneArguments(decision.Arguments)
 	snapshot, err := o.snapshotManagedActionTarget(ctx, capability.Name, target, arguments)
 	if err != nil {
@@ -197,20 +200,112 @@ func managedActionEvidenceSupports(value task.Task, target contracts.TargetRef, 
 		return false
 	}
 	for _, observation := range value.Runtime.Observations {
-		result := string(observation.Result)
-		lowerResult := strings.ToLower(result)
+		if strings.TrimSpace(observation.EvidenceRef) == "" {
+			continue
+		}
+		var structured any
+		if err := json.Unmarshal(observation.Result, &structured); err != nil {
+			continue
+		}
 		switch target.Type {
 		case "service":
-			for _, name := range []string{target.ID, snapshot.ServiceName} {
-				name = strings.ToLower(strings.TrimSpace(name))
-				if name != "" && strings.Contains(lowerResult, name) {
-					return true
-				}
+			if !serviceEvidenceTool(observation.Tool) {
+				continue
+			}
+			if structuredServiceIdentity(structured, target.ID, snapshot.ServiceName) {
+				return true
 			}
 		case "process":
-			pidToken := `"pid":` + strconv.Itoa(snapshot.PID)
-			startToken := `"start_ticks":` + strconv.FormatUint(snapshot.StartTicks, 10)
-			if strings.Contains(result, pidToken) && strings.Contains(result, startToken) {
+			if !processEvidenceTool(observation.Tool) {
+				continue
+			}
+			if structuredProcessIdentity(structured, snapshot.PID, snapshot.StartTicks) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func managedActionIntentAllows(request, tool string) bool {
+	request = strings.ToLower(strings.TrimSpace(request))
+	switch tool {
+	case "service.restart":
+		return containsAny(request, "重启", "重新启动", "restart service", "restart the service", "service restart")
+	case "process.terminate":
+		return containsAny(request, "终止进程", "结束进程", "停止进程", "杀掉进程", "terminate process", "terminate the process", "kill process", "kill the process", "stop process", "stop the process")
+	default:
+		return false
+	}
+}
+
+func containsAny(value string, candidates ...string) bool {
+	for _, candidate := range candidates {
+		if strings.Contains(value, candidate) {
+			return true
+		}
+	}
+	return false
+}
+
+func serviceEvidenceTool(tool string) bool {
+	switch tool {
+	case "service.get_status", "service.list_failed", "service.get_restart_count", "diagnostic.port_conflict", "diagnostic.build_snapshot":
+		return true
+	default:
+		return false
+	}
+}
+
+func processEvidenceTool(tool string) bool {
+	switch tool {
+	case "process.list_top", "process.search", "process.get_details", "process.get_resource_usage", "process.find_by_port", "network.check_port", "diagnostic.port_conflict", "diagnostic.high_cpu", "diagnostic.build_snapshot":
+		return true
+	default:
+		return false
+	}
+}
+
+func structuredServiceIdentity(value any, names ...string) bool {
+	wanted := map[string]bool{}
+	for _, name := range names {
+		if name = strings.ToLower(strings.TrimSpace(name)); name != "" {
+			wanted[name] = true
+		}
+	}
+	return walkStructured(value, func(object map[string]any) bool {
+		for _, key := range []string{"name", "unit", "service_name"} {
+			name, ok := object[key].(string)
+			if ok && wanted[strings.ToLower(strings.TrimSpace(name))] {
+				return true
+			}
+		}
+		return false
+	})
+}
+
+func structuredProcessIdentity(value any, pid int, startTicks uint64) bool {
+	return walkStructured(value, func(object map[string]any) bool {
+		observedPID, pidOK := numeric(object["pid"])
+		observedStart, startOK := numeric(object["start_ticks"])
+		return pidOK && startOK && observedPID == float64(pid) && observedStart == float64(startTicks)
+	})
+}
+
+func walkStructured(value any, match func(map[string]any) bool) bool {
+	switch typed := value.(type) {
+	case map[string]any:
+		if match(typed) {
+			return true
+		}
+		for _, child := range typed {
+			if walkStructured(child, match) {
+				return true
+			}
+		}
+	case []any:
+		for _, child := range typed {
+			if walkStructured(child, match) {
 				return true
 			}
 		}

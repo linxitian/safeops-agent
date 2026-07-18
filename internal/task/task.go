@@ -36,17 +36,26 @@ type RuntimeObservation struct {
 	Digest      string          `json:"digest"`
 }
 
+type RuntimeGuardFeedback struct {
+	Code            string   `json:"code"`
+	Summary         string   `json:"summary"`
+	Tool            string   `json:"tool"`
+	AttemptedPath   string   `json:"attempted_path,omitempty"`
+	AuthorizedPaths []string `json:"authorized_paths,omitempty"`
+}
+
 type RuntimeCheckpoint struct {
-	Iterations         int                  `json:"iterations"`
-	ToolCalls          int                  `json:"tool_calls"`
-	Replans            int                  `json:"replans"`
-	NoProgressRepeats  int                  `json:"no_progress_repeats"`
-	LastProgressDigest string               `json:"last_progress_digest,omitempty"`
-	MaxIterations      int                  `json:"max_iterations"`
-	MaxToolCalls       int                  `json:"max_tool_calls"`
-	StartedAt          time.Time            `json:"started_at"`
-	DeadlineAt         time.Time            `json:"deadline_at"`
-	Observations       []RuntimeObservation `json:"observations"`
+	Iterations         int                    `json:"iterations"`
+	ToolCalls          int                    `json:"tool_calls"`
+	Replans            int                    `json:"replans"`
+	NoProgressRepeats  int                    `json:"no_progress_repeats"`
+	LastProgressDigest string                 `json:"last_progress_digest,omitempty"`
+	MaxIterations      int                    `json:"max_iterations"`
+	MaxToolCalls       int                    `json:"max_tool_calls"`
+	StartedAt          time.Time              `json:"started_at"`
+	DeadlineAt         time.Time              `json:"deadline_at"`
+	Observations       []RuntimeObservation   `json:"observations"`
+	GuardFeedback      []RuntimeGuardFeedback `json:"guard_feedback,omitempty"`
 }
 
 type WorkerLease struct {

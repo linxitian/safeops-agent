@@ -148,10 +148,10 @@ func TestGeneralRuntimeProvidesDurableSessionContextToPlanner(t *testing.T) {
 		t.Fatal(err)
 	}
 	planner := &sequencePlanner{decisions: []llm.Decision{
-		{Kind: llm.DecisionTool, DecisionSummary: "读取已选文件范围", ServerID: "system", Tool: "system.get_load_average", Arguments: map[string]any{}},
+		{Kind: llm.DecisionTool, DecisionSummary: "读取已选文件范围", ServerID: "file", Tool: "file.stat", Arguments: map[string]any{"path": s.SelectedResources[2]}},
 		{Kind: llm.DecisionFinal, DecisionSummary: "基于证据完成", FinalAnswer: "已完成有界调查。"},
 	}}
-	tools := fakeGeneralTools{}
+	tools := &scopedReadTools{}
 	orchestrator := &Orchestrator{Store: store, Registry: tools, Capabilities: tools, Planner: planner, Safety: fakeSafety{}, Trace: traceWriter, ToolTimeout: time.Second}
 	if _, err := orchestrator.Prepare(ctx, "task_followup", s.ID, "哪些建议处理？"); err != nil {
 		t.Fatal(err)

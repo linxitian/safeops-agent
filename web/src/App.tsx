@@ -13,7 +13,10 @@ type TraceEvent = { sequence: number; timestamp: string; type: string; event_has
 type RuntimeEvent = { sequence: number; type: string; task_id: string; state: string; message: string; timestamp: string }
 type Overview = { mcp: Record<string, number>; sessions: Record<string, number>; tasks: Record<string, number>; approvals: Record<string, number>; generated_at: string }
 type ToolRecord = { name: string; description: string; schema_hash: string }
-type MCPServer = { manifest: { id: string; display_name: string; version: string; description: string; enabled: boolean; capabilities?: string[] | null }; status: string; error?: string; tools?: ToolRecord[] | null; tool_set_hash?: string; tools_changed: boolean; last_checked: string }
+type DependencyState = { name: string; kind: string; available: boolean; resolved?: string; mode?: string; is_dir: boolean; size_bytes?: number; modified_at?: string; error?: string; checked_at: string }
+type HealthRecord = { checked_at: string; status: string; error?: string; dependencies_healthy: boolean; duration_millis: number }
+type DiscoveryRecord = { discovered_at: string; status: string; error?: string; server_name?: string; server_version?: string; protocol_version?: string; tool_set_hash?: string; tool_count: number; tools_changed: boolean; dependencies_healthy: boolean; duration_millis: number }
+type MCPServer = { manifest: { id: string; display_name: string; version: string; description: string; enabled: boolean; capabilities?: string[] | null }; status: string; error?: string; actual_server_name?: string; actual_server_version?: string; protocol_version?: string; tools?: ToolRecord[] | null; tool_set_hash?: string; tools_changed: boolean; dependencies_checked: boolean; dependencies_healthy: boolean; dependency_checks?: DependencyState[] | null; health_history?: HealthRecord[] | null; discovery_history?: DiscoveryRecord[] | null; last_checked: string }
 type LLMConfig = { configured: boolean; base_url?: string; model?: string; api_key_configured: boolean; source?: string; updated_at?: string; last_configuration?: string }
 type AllowlistConfig = { config_path: string; read_only_roots?: string[] | null; managed_roots?: string[] | null; candidate_roots?: string[] | null; allowed_file_roots?: string[] | null; quarantine_root: string; missing_roots?: string[] | null; requires_executor_restart: boolean; write_actions_enabled: boolean; updated_at?: string }
 type BrowserMode = 'read' | 'write'
@@ -78,6 +81,9 @@ const normalizeMCPServer = (value: MCPServer): MCPServer => ({
   ...value,
   manifest: { ...value.manifest, capabilities: asArray(value.manifest.capabilities) },
   tools: asArray(value.tools),
+  dependency_checks: asArray(value.dependency_checks),
+  health_history: asArray(value.health_history),
+  discovery_history: asArray(value.discovery_history),
 })
 
 function SafeMarkdown({ content, streaming = false }: { content: string; streaming?: boolean }) {
@@ -629,7 +635,25 @@ export default function App() {
       <div className="workspace-grid"><section className="workspace-card"><h3>耐久任务状态</h3>{Object.entries(overview?.tasks || {}).map(([state, count]) => <div className="bar-row" key={state}><span>{state}</span><b>{count}</b></div>)}</section><section className="workspace-card"><h3>最近任务</h3>{asArray(tasks).slice(0, 8).map(item => <button className="task-row" key={item.task_id} onClick={() => { setTask(normalizeTask(item)); if (item.task_id) void syncTask(item.task_id); setView('audit') }}><span>{item.objective || item.task_id}</span><b className={`state ${item.state}`}>{item.state}</b></button>)}</section></div>
     </>}
     {view === 'tools' && <><div className="page-lead"><h2>MCP 插件与工具</h2><p>全部来自官方协议 initialize/tools-list；生命周期操作不修改 Linux 业务状态。</p><input className="page-search" value={toolSearch} onChange={event => setToolSearch(event.target.value)} placeholder="搜索 Tool 名称或说明" /></div>
-      <div className="server-grid">{filteredServers.map(server => <section className="server-card" key={server.manifest.id}><div><span>{server.manifest.display_name}</span><b className={`server-status ${server.status}`}>{server.status}</b></div><h3>{server.manifest.id} · v{server.manifest.version}</h3><p>{server.manifest.description}</p><small>{asArray(server.tools).length} tools · {asArray(server.manifest.capabilities).join(' / ')}</small><div className="tool-list">{asArray(server.tools).map(tool => <details key={tool.name}><summary>{tool.name}</summary><p>{tool.description}</p><code>{tool.schema_hash.slice(0, 16)}…</code></details>)}</div><div className="server-actions"><button onClick={() => changeServer(server, 'health')}>健康检查</button><button onClick={() => changeServer(server, 'rediscover')}>重新发现</button><button onClick={() => changeServer(server, server.manifest.enabled ? 'disable' : 'enable')}>{server.manifest.enabled ? '停用' : '启用'}</button></div></section>)}</div>
+      <div className="server-grid">{filteredServers.map(server => {
+        const dependencies = asArray(server.dependency_checks)
+        const availableDependencies = dependencies.filter(item => item.available).length
+        const discoveries = asArray(server.discovery_history)
+        return <section className="server-card" key={server.manifest.id}>
+          <div><span>{server.manifest.display_name}</span><b className={`server-status ${server.status}`}>{server.status}</b></div>
+          <h3>{server.manifest.id} · v{server.actual_server_version || server.manifest.version}</h3>
+          <p>{server.manifest.description}</p>
+          <small>{asArray(server.tools).length} tools · {asArray(server.manifest.capabilities).join(' / ')}</small>
+          <div className="server-facts"><span>实际实现 <b>{server.actual_server_name || '-'}</b></span><span>协议 <b>{server.protocol_version || '-'}</b></span><span>依赖 <b>{server.dependencies_checked ? `${availableDependencies} / ${dependencies.length}` : '未检查'}</b></span><span>健康记录 <b>{asArray(server.health_history).length}</b></span></div>
+          <details className="server-observability"><summary>依赖与发现历史</summary>
+            <div className="dependency-list">{dependencies.length ? dependencies.map(item => <span key={`${item.kind}-${item.name}`} className={item.available ? 'available' : 'missing'}><b>{item.available ? '可用' : '缺失'}</b><code title={item.error || item.resolved}>{item.name || '<empty>'}{item.mode ? ` · ${item.mode}` : ''}</code></span>) : <small>Manifest 未声明依赖。</small>}</div>
+            <div className="discovery-list">{discoveries.slice(-3).reverse().map(item => <span key={`${item.discovered_at}-${item.tool_set_hash || item.error || item.status}`}><time>{formatTime(item.discovered_at)}</time><b>{item.status || 'HEALTHY'} · v{item.server_version || '-'}</b><small>{item.tool_count} tools{item.tools_changed ? ' · 工具集变化' : ''}{item.error ? ` · ${item.error}` : ''}</small></span>)}</div>
+            <small>最近检查：{server.last_checked ? formatTime(server.last_checked) : '尚未检查'}</small>
+          </details>
+          <div className="tool-list">{asArray(server.tools).map(tool => <details key={tool.name}><summary>{tool.name}</summary><p>{tool.description}</p><code>{tool.schema_hash.slice(0, 16)}…</code></details>)}</div>
+          <div className="server-actions"><button onClick={() => changeServer(server, 'health')}>健康检查</button><button onClick={() => changeServer(server, 'rediscover')}>重新发现</button><button onClick={() => changeServer(server, server.manifest.enabled ? 'disable' : 'enable')}>{server.manifest.enabled ? '停用' : '启用'}</button></div>
+        </section>
+      })}</div>
     </>}
     {view === 'safety' && <><div className="page-lead"><h2>本地安全决策面</h2><p>Tool 自报风险不可信；本地 Policy、Intent Guard、目标快照与执行器重验证才是授权依据。</p></div>
       <div className="boundary-grid"><Metric label="任意命令工具" value="0" detail="未知写能力 fail closed" /><Metric label="待审批" value={String(overview?.approvals.PENDING || 0)} detail="每个动作精确绑定" /><Metric label="执行边界" value="Unix Socket" detail="无公网特权 TCP" /><Metric label="永久清理" value="无 Handler" detail="L3 默认拒绝" /></div>

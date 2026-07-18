@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"gopkg.in/yaml.v3"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -14,6 +15,7 @@ import (
 type Config struct {
 	SchemaVersion             int      `yaml:"schema_version"`
 	AllowedServices           []string `yaml:"allowed_services"`
+	ReadFileRoots             []string `yaml:"read_file_roots"`
 	AllowedFileRoots          []string `yaml:"allowed_file_roots"`
 	LabFileRoots              []string `yaml:"lab_file_roots"`
 	QuarantineRoot            string   `yaml:"quarantine_root"`
@@ -22,13 +24,41 @@ type Config struct {
 
 type AllowlistStatus struct {
 	ConfigPath              string    `json:"config_path"`
+	ReadOnlyRoots           []string  `json:"read_only_roots"`
 	ManagedRoots            []string  `json:"managed_roots"`
+	CandidateRoots          []string  `json:"candidate_roots"`
 	AllowedFileRoots        []string  `json:"allowed_file_roots"`
 	QuarantineRoot          string    `json:"quarantine_root"`
 	MissingRoots            []string  `json:"missing_roots"`
 	RequiresExecutorRestart bool      `json:"requires_executor_restart"`
 	WriteActionsEnabled     bool      `json:"write_actions_enabled"`
 	UpdatedAt               time.Time `json:"updated_at,omitempty"`
+}
+
+type PathBrowserEntry struct {
+	Name            string    `json:"name"`
+	Path            string    `json:"path"`
+	IsDir           bool      `json:"is_dir"`
+	SizeBytes       int64     `json:"size_bytes"`
+	Mode            string    `json:"mode"`
+	Modified        time.Time `json:"modified"`
+	SelectableRead  bool      `json:"selectable_read"`
+	SelectableWrite bool      `json:"selectable_write"`
+}
+
+type PathBrowser struct {
+	Path             string             `json:"path"`
+	Parent           string             `json:"parent,omitempty"`
+	Mode             string             `json:"mode"`
+	ReadOnlyRoots    []string           `json:"read_only_roots"`
+	ManagedRoots     []string           `json:"managed_roots"`
+	CandidateRoots   []string           `json:"candidate_roots"`
+	Entries          []PathBrowserEntry `json:"entries"`
+	Truncated        bool               `json:"truncated"`
+	CanSelectRead    bool               `json:"can_select_read"`
+	CanSelectWrite   bool               `json:"can_select_write"`
+	CanCreateChild   bool               `json:"can_create_child"`
+	WriteRootMissing bool               `json:"write_root_missing"`
 }
 
 type ConfigManager struct {
@@ -70,6 +100,9 @@ func LoadConfig(path string) (Config, error) {
 	}
 	if config.LabFileRoots, err = normalizeAllowlistRoots(config.LabFileRoots, config.QuarantineRoot); err != nil {
 		return Config{}, fmt.Errorf("lab_file_roots: %w", err)
+	}
+	if config.ReadFileRoots, err = normalizeReadOnlyRoots(config.ReadFileRoots); err != nil {
+		return Config{}, fmt.Errorf("read_file_roots: %w", err)
 	}
 	if config.AllowedFileRoots, err = normalizeAllowlistRoots(config.AllowedFileRoots, ""); err != nil {
 		return Config{}, fmt.Errorf("allowed_file_roots: %w", err)
@@ -140,7 +173,9 @@ func (m *ConfigManager) UpdateManagedRoots(roots []string) (AllowlistStatus, err
 func (m *ConfigManager) statusLocked() AllowlistStatus {
 	status := AllowlistStatus{
 		ConfigPath:              m.path,
+		ReadOnlyRoots:           append([]string(nil), m.config.ReadFileRoots...),
 		ManagedRoots:            append([]string(nil), m.config.LabFileRoots...),
+		CandidateRoots:          candidateManagedRoots(m.maximumRoots),
 		AllowedFileRoots:        append([]string(nil), m.config.AllowedFileRoots...),
 		QuarantineRoot:          m.config.QuarantineRoot,
 		RequiresExecutorRestart: false,
@@ -154,6 +189,159 @@ func (m *ConfigManager) statusLocked() AllowlistStatus {
 		}
 	}
 	return status
+}
+
+func (m *ConfigManager) BrowsePath(path, mode string, limit int) (PathBrowser, error) {
+	m.mu.Lock()
+	config := m.config
+	maximumRoots := append([]string(nil), m.maximumRoots...)
+	m.mu.Unlock()
+	mode = strings.ToLower(strings.TrimSpace(mode))
+	if mode == "" {
+		mode = "read"
+	}
+	if mode != "read" && mode != "write" {
+		return PathBrowser{}, fmt.Errorf("unsupported browser mode %q", mode)
+	}
+	if limit <= 0 {
+		limit = 200
+	}
+	if limit > 500 {
+		return PathBrowser{}, fmt.Errorf("limit must not exceed 500")
+	}
+	clean := filepath.Clean(strings.TrimSpace(path))
+	if clean == "." || clean == "" {
+		if mode == "write" && len(maximumRoots) > 0 {
+			clean = maximumRoots[0]
+		} else {
+			clean = string(filepath.Separator)
+		}
+	}
+	if !filepath.IsAbs(clean) {
+		return PathBrowser{}, fmt.Errorf("path must be absolute")
+	}
+	roots := config.ReadFileRoots
+	if mode == "write" {
+		roots = maximumRoots
+	}
+	root, rootPath, relative, err := openBoundedRoot(clean, roots)
+	if err != nil {
+		return PathBrowser{}, fmt.Errorf("path %s is outside %s roots", clean, mode)
+	}
+	defer root.Close()
+	browser := PathBrowser{
+		Path:           clean,
+		Mode:           mode,
+		ReadOnlyRoots:  append([]string(nil), config.ReadFileRoots...),
+		ManagedRoots:   append([]string(nil), config.LabFileRoots...),
+		CandidateRoots: candidateManagedRoots(maximumRoots),
+		CanSelectRead:  withinAny(clean, config.ReadFileRoots),
+		CanSelectWrite: withinAny(clean, maximumRoots),
+	}
+	if parent := filepath.Dir(clean); parent != clean && withinAny(parent, roots) {
+		browser.Parent = parent
+	}
+	info, err := root.Stat(relative)
+	if err != nil {
+		if mode == "write" && os.IsNotExist(err) && boundedPathMissing(rootPath, relative) {
+			browser.WriteRootMissing = true
+			return browser, nil
+		}
+		return browser, err
+	}
+	if !info.IsDir() {
+		return browser, fmt.Errorf("path is not a directory")
+	}
+	browser.CanCreateChild = mode == "write" && browser.CanSelectWrite
+	directory, err := root.Open(relative)
+	if err != nil {
+		return browser, err
+	}
+	defer directory.Close()
+	entries, err := directory.ReadDir(limit + 1)
+	if err != nil && !errors.Is(err, io.EOF) {
+		return browser, err
+	}
+	browser.Truncated = len(entries) > limit
+	if browser.Truncated {
+		entries = entries[:limit]
+	}
+	for _, entry := range entries {
+		if !entry.IsDir() {
+			continue
+		}
+		info, err := entry.Info()
+		if err != nil {
+			continue
+		}
+		entryPath := filepath.Join(clean, entry.Name())
+		browser.Entries = append(browser.Entries, PathBrowserEntry{Name: entry.Name(), Path: entryPath, IsDir: true, SizeBytes: info.Size(), Mode: info.Mode().String(), Modified: info.ModTime().UTC(), SelectableRead: withinAny(entryPath, config.ReadFileRoots), SelectableWrite: withinAny(entryPath, maximumRoots)})
+	}
+	return browser, nil
+}
+
+func (m *ConfigManager) CreateDirectory(parent, name string) (PathBrowser, error) {
+	m.mu.Lock()
+	maximumRoots := append([]string(nil), m.maximumRoots...)
+	m.mu.Unlock()
+	parent = filepath.Clean(strings.TrimSpace(parent))
+	name = strings.TrimSpace(name)
+	if !filepath.IsAbs(parent) {
+		return PathBrowser{}, fmt.Errorf("parent path must be absolute")
+	}
+	if !safeDirectoryName(name) {
+		return PathBrowser{}, fmt.Errorf("directory name is invalid")
+	}
+	root, _, relativeParent, err := openBoundedRoot(parent, maximumRoots)
+	if err != nil {
+		return PathBrowser{}, fmt.Errorf("parent %s is outside writable administrator-defined roots", parent)
+	}
+	defer root.Close()
+	info, err := root.Stat(relativeParent)
+	if err != nil {
+		return PathBrowser{}, err
+	}
+	if !info.IsDir() {
+		return PathBrowser{}, fmt.Errorf("parent path is not a directory")
+	}
+	path := filepath.Join(parent, name)
+	if !withinAny(path, maximumRoots) {
+		return PathBrowser{}, fmt.Errorf("directory path escapes writable roots")
+	}
+	relativePath := filepath.Join(relativeParent, name)
+	if err := root.Mkdir(relativePath, 0o750); err != nil {
+		return PathBrowser{}, err
+	}
+	if err := syncRootDirectory(root, relativeParent); err != nil {
+		return PathBrowser{}, err
+	}
+	return m.BrowsePath(path, "write", 200)
+}
+
+func candidateManagedRoots(maximumRoots []string) []string {
+	out := make([]string, 0, len(maximumRoots))
+	for _, root := range maximumRoots {
+		root = filepath.Clean(root)
+		out = appendUniquePaths(out, root)
+		entries, err := os.ReadDir(root)
+		if err != nil {
+			continue
+		}
+		for _, entry := range entries {
+			if len(out) >= 200 {
+				return out
+			}
+			if !entry.IsDir() {
+				continue
+			}
+			name := entry.Name()
+			if name == "." || name == ".." {
+				continue
+			}
+			out = appendUniquePaths(out, filepath.Join(root, name))
+		}
+	}
+	return out
 }
 
 func loadManagedRoots(path string) ([]string, error) {
@@ -252,6 +440,30 @@ func normalizeAllowlistRoots(values []string, quarantineRoot string) ([]string, 
 	return out, nil
 }
 
+func normalizeReadOnlyRoots(values []string) ([]string, error) {
+	if len(values) == 0 {
+		values = []string{string(filepath.Separator)}
+	}
+	out := make([]string, 0, len(values))
+	for _, value := range values {
+		value = strings.TrimSpace(value)
+		if value == "" {
+			return nil, fmt.Errorf("path is required")
+		}
+		if !filepath.IsAbs(value) {
+			return nil, fmt.Errorf("path %q must be absolute", value)
+		}
+		clean := filepath.Clean(value)
+		if resolved, err := filepath.EvalSymlinks(clean); err == nil {
+			clean = resolved
+		} else if !os.IsNotExist(err) {
+			return nil, err
+		}
+		out = appendUniquePaths(out, clean)
+	}
+	return out, nil
+}
+
 func normalizeAllowlistRoot(value string) (string, error) {
 	value = strings.TrimSpace(value)
 	if value == "" {
@@ -301,6 +513,72 @@ func appendUniquePaths(values []string, next string) []string {
 	return append(values, next)
 }
 
+func withinAny(path string, roots []string) bool {
+	for _, root := range roots {
+		if sameOrInside(path, root) {
+			return true
+		}
+	}
+	return false
+}
+
+func openBoundedRoot(path string, roots []string) (*os.Root, string, string, error) {
+	clean := filepath.Clean(path)
+	selected := ""
+	for _, candidate := range roots {
+		candidate = filepath.Clean(candidate)
+		if !sameOrInside(clean, candidate) || len(candidate) <= len(selected) {
+			continue
+		}
+		selected = candidate
+	}
+	if selected == "" {
+		return nil, "", "", errors.New("path is outside configured roots")
+	}
+	relative, err := filepath.Rel(selected, clean)
+	if err != nil {
+		return nil, "", "", err
+	}
+	root, err := os.OpenRoot(selected)
+	if err != nil {
+		return nil, "", "", err
+	}
+	return root, selected, relative, nil
+}
+
+func boundedPathMissing(rootPath, relative string) bool {
+	relative = filepath.Clean(relative)
+	if relative == "." {
+		return false
+	}
+	current := filepath.Clean(rootPath)
+	parts := strings.Split(relative, string(filepath.Separator))
+	for index, part := range parts {
+		if part == "" || part == "." || part == ".." {
+			return false
+		}
+		current = filepath.Join(current, part)
+		info, err := os.Lstat(current)
+		if os.IsNotExist(err) {
+			return true
+		}
+		if err != nil || info.Mode()&os.ModeSymlink != 0 {
+			return false
+		}
+		if index < len(parts)-1 && !info.IsDir() {
+			return false
+		}
+	}
+	return false
+}
+
+func safeDirectoryName(name string) bool {
+	if name == "" || name == "." || name == ".." || len(name) > 128 {
+		return false
+	}
+	return !strings.ContainsAny(name, `/\`)
+}
+
 func sameOrInside(path, root string) bool {
 	relative, err := filepath.Rel(filepath.Clean(root), filepath.Clean(path))
 	return err == nil && relative != ".." && !strings.HasPrefix(relative, ".."+string(filepath.Separator))
@@ -308,6 +586,18 @@ func sameOrInside(path, root string) bool {
 
 func syncConfigDirectory(directory string) error {
 	dir, err := os.Open(directory)
+	if err != nil {
+		return err
+	}
+	if err := dir.Sync(); err != nil {
+		_ = dir.Close()
+		return err
+	}
+	return dir.Close()
+}
+
+func syncRootDirectory(root *os.Root, directory string) error {
+	dir, err := root.Open(directory)
 	if err != nil {
 		return err
 	}

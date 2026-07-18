@@ -23,6 +23,7 @@ Updated: 2026-07-18
 | M14 Target compatibility | TARGET_VERIFIED | Audited reports identify Kylin V11/loong64, glibc 2.38 and systemd 255; 8/8 MCP discovery/ping and all 39 native tool calls pass, with WARN only for optional target `git`/`go` commands |
 | M15 Benchmarks | TARGET_VERIFIED | Installed non-root `safeops-bench all` passed all six suites and measured all 16 metrics natively on official Kylin V11/loong64; controlled-fixture and environment-specific latency caveats remain explicit |
 | M16 Release/deploy | TARGET_VERIFIED | Target checksum/install/start/health/reinstall pass; default uninstall removed binaries/config/units while 140 durable file hashes and 153 metadata rows stayed identical, then root-only environment/HMAC restoration preserved continuity |
+| M17 Guarded LLM actions/path governance | TESTED | Ubuntu tests enforce explicit operator action verbs, exact structured MCP target identity, approval-bound fixed actions, separated read/write roots, symlink-confined browsing/creation and preservation of the existing Lab write root; official Kylin validation is pending |
 
 ## Actual changes in the current development stage
 
@@ -41,6 +42,8 @@ Updated: 2026-07-18
 - Implemented durable exact-bound approval records, HMAC ActionEnvelope, nonce replay prevention, executor-side policy/intent/risk/scope/target revalidation and a Unix-socket dry-run executor.
 - Implemented deterministic Evidence Graph, D1-D3 RCA confidence formula and pure-Go BM25 knowledge retrieval with source/score/matched-term provenance; connected it to port-conflict diagnosis.
 - Added an OpenAI-compatible structured-output Provider and a bounded general Agent loop with discovered-schema validation, Tool Result re-entry, 12-iteration/30-call limits, replan bounds and no-progress detection.
+- Added model requests for only the fixed `service.restart` and `process.terminate` actions; explicit operator intent and exact successful structured MCP identity evidence are checked locally before policy, snapshot and approval preparation.
+- Added separate read-only browser and managed-write roots, a graphical directory browser and non-root child-directory creation confined by `os.Root`; deployment retains both `/home` and `/var/lib/safeops/lab` write roots so existing target Demos remain in scope.
 - Added bounded, redacted durable Session context for ambiguous general follow-ups and constrained every provider request by the persisted Agent deadline.
 - Added approval resolve APIs and automatic Task resume through EXECUTING/VERIFYING, including server-start recovery of resolved approvals.
 - Added real allowlisted Lab handlers for atomic file quarantine/restore, reversible delete-by-quarantine, fixed-size file creation, fixed service restart and fixed SIGTERM process termination; permanent purge and arbitrary command execution remain unavailable.
@@ -78,6 +81,8 @@ Updated: 2026-07-18
 | SafeFS boundary/hash/config snapshot | PASS; traversal/symlink escape and size bounds tested |
 | Unified Collector batches | TARGET_VERIFIED; installed non-root Kylin run completed 7/7 collectors, 195 observations, no issues/truncation and both count-only adapter models; no Observation values or configuration hashes persisted |
 | Guard/approval/envelope/executor negatives | PASS; mismatch, injection, tamper, expiry, replay and target change denied |
+| Guarded LLM action negatives | PASS; read-only requests, error/unrelated text, mismatched PID/start-ticks and unavailable action names fail closed |
+| Path governance boundaries | PASS; read/write roots are separate, parent navigation stays bounded, symlink escapes cannot be browsed or created through, and deployment config preserves `/home` plus the existing Lab root |
 | Approval resume and real Lab rollback | PASS; approved/rejected/failure/restart recovery plus real quarantine/restore/create/delete cycles |
 | Port recovery state machine | PASS; 10/10 plan, five read tools, D1/RAG, L2 process approval, separate L1 restart approval and HTTP verification |
 | CPU recovery state machine | PASS; exact process identity, persisted baseline, post-action process/CPU verification and no false success when recovery is insufficient |
@@ -142,6 +147,7 @@ All named target workflows have `VALID` hash-chained Traces. The eight-view UI i
 - The target image lacks optional `git` and `go` commands. They are not release runtime dependencies, but their absence remains visible as bounded report warnings.
 - `make` is absent on the Ubuntu development host, but equivalent direct commands pass, so this does not block development.
 - Registry periodic health scheduling, dependency-state projection and version history remain engineering gaps; current lifecycle operations are explicit/API-driven.
+- M17's new model-proposed fixed-action and path-browser scope still needs an exact merged release run on the official Kylin VM before it can be called `TARGET_VERIFIED`.
 
 ## Human action required now
 

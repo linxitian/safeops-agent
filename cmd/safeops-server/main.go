@@ -110,7 +110,7 @@ func main() {
 		if err != nil {
 			log.Fatal(err)
 		}
-		orchestrator.Actions = &agent.ActionPreparer{Store: store, Approvals: approvalStore, Safety: safety, Trace: traceWriter, Secret: secret}
+		orchestrator.Actions = &agent.ActionPreparer{Store: store, Approvals: approvalStore, Safety: safety, Scope: execConfig.Scope(), Trace: traceWriter, Secret: secret}
 		orchestrator.FileTargets = targets
 		orchestrator.ActionTargets = targets
 		log.Print("approval-bound write-action preparation enabled")

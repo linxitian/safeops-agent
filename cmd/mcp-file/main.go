@@ -4,6 +4,7 @@ import (
 	"context"
 	"flag"
 	"log"
+	"strings"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
@@ -12,9 +13,14 @@ import (
 )
 
 func main() {
-	root := flag.String("root", "/var/lib/safeops/lab", "absolute SafeOps Lab file root")
+	root := flag.String("root", "", "single absolute file root; kept for compatibility")
+	roots := flag.String("roots", "/var/log,/var/lib/safeops/lab", "comma-separated absolute read-only file roots")
 	flag.Parse()
-	reader, err := safefs.NewReader(*root)
+	values := strings.Split(*roots, ",")
+	if strings.TrimSpace(*root) != "" {
+		values = []string{*root}
+	}
+	reader, err := safefs.NewReader(values...)
 	if err != nil {
 		log.Fatal(err)
 	}

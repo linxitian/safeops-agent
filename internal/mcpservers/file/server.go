@@ -12,18 +12,18 @@ const Version = "0.1.0"
 
 type EmptyInput struct{}
 type PathInput struct {
-	Path string `json:"path" jsonschema:"absolute path under a configured SafeOps Lab root"`
+	Path string `json:"path" jsonschema:"absolute path under a configured read-only file root"`
 }
 type ListInput struct {
-	Path  string `json:"path" jsonschema:"absolute directory under a configured SafeOps Lab root"`
+	Path  string `json:"path" jsonschema:"absolute directory under a configured read-only file root"`
 	Limit int    `json:"limit,omitempty" jsonschema:"maximum entries from 1 to 500"`
 }
 type HashInput struct {
-	Path     string `json:"path" jsonschema:"absolute regular file under a configured SafeOps Lab root"`
+	Path     string `json:"path" jsonschema:"absolute regular file under a configured read-only file root"`
 	MaxBytes int64  `json:"max_bytes,omitempty" jsonschema:"read bound up to 16777216 bytes"`
 }
 type LargeInput struct {
-	Path         string `json:"path" jsonschema:"absolute directory under a configured SafeOps Lab root"`
+	Path         string `json:"path" jsonschema:"absolute directory under a configured read-only file root"`
 	MinimumBytes int64  `json:"minimum_bytes,omitempty"`
 	MaxDepth     int    `json:"max_depth,omitempty" jsonschema:"directory depth from 1 to 16"`
 	Limit        int    `json:"limit,omitempty" jsonschema:"maximum results from 1 to 200"`
@@ -49,7 +49,7 @@ type LargeOutput struct {
 
 func New(reader *safefs.Reader) *mcp.Server {
 	s := mcp.NewServer(&mcp.Implementation{Name: "safeops-mcp-file", Version: Version}, nil)
-	mcp.AddTool(s, readTool("file.list_roots", "列出文件感知严格允许的 SafeOps Lab 根目录"), func(context.Context, *mcp.CallToolRequest, EmptyInput) (*mcp.CallToolResult, RootsOutput, error) {
+	mcp.AddTool(s, readTool("file.list_roots", "列出文件感知严格允许的只读根目录"), func(context.Context, *mcp.CallToolRequest, EmptyInput) (*mcp.CallToolResult, RootsOutput, error) {
 		return &mcp.CallToolResult{}, RootsOutput{Roots: reader.Roots()}, nil
 	})
 	mcp.AddTool(s, readTool("file.stat", "读取 allowlist 内文件或目录元数据，不返回正文"), func(ctx context.Context, _ *mcp.CallToolRequest, in PathInput) (*mcp.CallToolResult, StatOutput, error) {
@@ -64,7 +64,7 @@ func New(reader *safefs.Reader) *mcp.Server {
 		value, err := reader.Hash(ctx, in.Path, in.MaxBytes)
 		return &mcp.CallToolResult{}, HashOutput{Hash: value}, err
 	})
-	mcp.AddTool(s, readTool("file.find_large", "在限定深度和结果数内定位 SafeOps Lab 大文件"), func(ctx context.Context, _ *mcp.CallToolRequest, in LargeInput) (*mcp.CallToolResult, LargeOutput, error) {
+	mcp.AddTool(s, readTool("file.find_large", "在限定深度和结果数内定位配置只读根内的大文件"), func(ctx context.Context, _ *mcp.CallToolRequest, in LargeInput) (*mcp.CallToolResult, LargeOutput, error) {
 		files, truncated, err := reader.FindLarge(ctx, in.Path, in.MinimumBytes, in.MaxDepth, in.Limit)
 		return &mcp.CallToolResult{}, LargeOutput{Files: files, Truncated: truncated}, err
 	})

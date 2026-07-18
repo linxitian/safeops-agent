@@ -15,7 +15,10 @@ type Overview = { mcp: Record<string, number>; sessions: Record<string, number>;
 type ToolRecord = { name: string; description: string; schema_hash: string }
 type MCPServer = { manifest: { id: string; display_name: string; version: string; description: string; enabled: boolean; capabilities?: string[] | null }; status: string; error?: string; tools?: ToolRecord[] | null; tool_set_hash?: string; tools_changed: boolean; last_checked: string }
 type LLMConfig = { configured: boolean; base_url?: string; model?: string; api_key_configured: boolean; source?: string; updated_at?: string; last_configuration?: string }
-type AllowlistConfig = { config_path: string; managed_roots?: string[] | null; allowed_file_roots?: string[] | null; quarantine_root: string; missing_roots?: string[] | null; requires_executor_restart: boolean; write_actions_enabled: boolean; updated_at?: string }
+type AllowlistConfig = { config_path: string; read_only_roots?: string[] | null; managed_roots?: string[] | null; candidate_roots?: string[] | null; allowed_file_roots?: string[] | null; quarantine_root: string; missing_roots?: string[] | null; requires_executor_restart: boolean; write_actions_enabled: boolean; updated_at?: string }
+type BrowserMode = 'read' | 'write'
+type PathBrowserEntry = { name: string; path: string; is_dir: boolean; size_bytes: number; mode: string; modified: string; selectable_read: boolean; selectable_write: boolean }
+type PathBrowser = { path: string; parent?: string; mode: BrowserMode; read_only_roots?: string[] | null; managed_roots?: string[] | null; candidate_roots?: string[] | null; entries?: PathBrowserEntry[] | null; truncated: boolean; can_select_read: boolean; can_select_write: boolean; can_create_child: boolean; write_root_missing: boolean }
 type StreamingReply = { messageID: string; glyphs: string[]; visibleCount: number }
 type ConfirmDialog = { title: string; message: string; confirmLabel: string; cancelLabel?: string; tone?: 'default' | 'danger' }
 
@@ -44,6 +47,18 @@ const viewTitle: Record<View, [string, string]> = {
 
 const asArray = <T,>(value?: T[] | null): T[] => Array.isArray(value) ? value : []
 const formatTime = (value: string) => new Date(value).toLocaleString('zh-CN', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' })
+const uniquePaths = (values: string[]) => Array.from(new Set(values.map(item => item.trim()).filter(Boolean)))
+const splitPathLines = (value: string) => uniquePaths(value.split(/\r?\n/))
+const joinPathLines = (values: string[]) => uniquePaths(values).join('\n')
+
+const allowlistCandidateRoots = (config: AllowlistConfig | null, draftRoots: string[]) => {
+  if (!config) return []
+  const quarantine = config.quarantine_root
+  const candidates = asArray(config.candidate_roots).length ? asArray(config.candidate_roots) : asArray(config.allowed_file_roots)
+  return uniquePaths([...candidates, ...draftRoots]).filter(path => path !== quarantine)
+}
+
+const pathName = (path: string) => path.split('/').filter(Boolean).at(-1) || path
 
 const normalizeSession = (value: Session): Session => ({
   ...value,
@@ -105,6 +120,12 @@ export default function App() {
   const [llmForm, setLLMForm] = useState({ base_url: '', api_key: '', model: '' })
   const [allowlistConfig, setAllowlistConfig] = useState<AllowlistConfig | null>(null)
   const [allowlistText, setAllowlistText] = useState('')
+  const [pathBrowser, setPathBrowser] = useState<PathBrowser | null>(null)
+  const [pathBrowserMode, setPathBrowserMode] = useState<BrowserMode>('read')
+  const [pathBrowserPath, setPathBrowserPath] = useState('/')
+  const [pathBrowserLoading, setPathBrowserLoading] = useState(false)
+  const [pathBrowserError, setPathBrowserError] = useState('')
+  const [newFolderName, setNewFolderName] = useState('')
   const [input, setInput] = useState('')
   const [search, setSearch] = useState('')
   const [toolSearch, setToolSearch] = useState('')
@@ -126,6 +147,7 @@ export default function App() {
   const inputRef = useRef<HTMLTextAreaElement | null>(null)
   const messagesRef = useRef<HTMLElement | null>(null)
   const initializedRef = useRef(false)
+  const allowlistInitializedRef = useRef(false)
   const lastSequenceRef = useRef<Record<string, number>>({})
   const streamedTaskIDsRef = useRef<Set<string>>(new Set())
 
@@ -226,6 +248,25 @@ export default function App() {
     return value
   }, [])
 
+  const loadPathBrowser = useCallback(async (path: string, mode: BrowserMode) => {
+    const query = new URLSearchParams({ mode, path: path || '' })
+    setPathBrowserLoading(true)
+    setPathBrowserError('')
+    try {
+      const value = await api<PathBrowser>(`/api/v1/executor/path-browser?${query}`)
+      setPathBrowser(value)
+      setPathBrowserMode(value.mode)
+      setPathBrowserPath(value.path)
+      return value
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err)
+      setPathBrowserError(message)
+      throw err
+    } finally {
+      setPathBrowserLoading(false)
+    }
+  }, [])
+
   useEffect(() => {
     if (initializedRef.current) return
     initializedRef.current = true
@@ -256,8 +297,17 @@ export default function App() {
   }, [loadLLMConfig, view])
 
   useEffect(() => {
-    if (view === 'allowlist') loadAllowlistConfig().catch(err => setError(err instanceof Error ? err.message : String(err)))
-  }, [loadAllowlistConfig, view])
+    if (view !== 'allowlist') {
+      allowlistInitializedRef.current = false
+      return
+    }
+    if (allowlistInitializedRef.current) return
+    allowlistInitializedRef.current = true
+    loadAllowlistConfig().then(value => {
+      const initialPath = pathBrowserMode === 'write' ? asArray(value.managed_roots)[0] || asArray(value.candidate_roots)[0] || '/' : asArray(value.read_only_roots)[0] || '/'
+      return loadPathBrowser(initialPath, pathBrowserMode)
+    }).catch(err => setError(err instanceof Error ? err.message : String(err)))
+  }, [loadAllowlistConfig, loadPathBrowser, pathBrowserMode, view])
 
   useEffect(() => {
     const element = inputRef.current
@@ -476,7 +526,7 @@ export default function App() {
   const saveAllowlistConfig = async (event: FormEvent) => {
     event.preventDefault()
     if (savingAllowlist) return
-    const managed_roots = allowlistText.split(/\r?\n/).map(item => item.trim()).filter(Boolean)
+    const managed_roots = splitPathLines(allowlistText)
     setSavingAllowlist(true); setError('')
     try {
       const saved = await api<AllowlistConfig>('/api/v1/executor/allowlist', { method: 'PUT', body: JSON.stringify({ managed_roots }) })
@@ -484,6 +534,40 @@ export default function App() {
       setAllowlistText(asArray(saved.managed_roots).join('\n'))
     } catch (err) { setError(err instanceof Error ? err.message : String(err)) }
     finally { setSavingAllowlist(false) }
+  }
+
+  const allowlistDraftRoots = splitPathLines(allowlistText)
+  const allowlistCandidates = allowlistCandidateRoots(allowlistConfig, allowlistDraftRoots)
+  const allowlistMissingRoots = asArray(allowlistConfig?.missing_roots)
+  const allowlistAllowedPreview = uniquePaths([...allowlistDraftRoots, allowlistConfig?.quarantine_root || '']).filter(Boolean)
+  const toggleAllowlistCandidate = (path: string) => {
+    const selected = allowlistDraftRoots.includes(path)
+    setAllowlistText(joinPathLines(selected ? allowlistDraftRoots.filter(item => item !== path) : [...allowlistDraftRoots, path]))
+  }
+  const addWritableRoot = (path: string) => {
+    setAllowlistText(joinPathLines([...allowlistDraftRoots, path]))
+  }
+  const switchPathBrowserMode = (mode: BrowserMode) => {
+    const path = mode === 'write' ? allowlistDraftRoots[0] || allowlistCandidates[0] || pathBrowserPath : asArray(allowlistConfig?.read_only_roots)[0] || '/'
+    void loadPathBrowser(path, mode)
+  }
+  const createBrowserDirectory = async () => {
+    const name = newFolderName.trim()
+    if (!pathBrowser || !name || pathBrowserLoading) return
+    setPathBrowserLoading(true)
+    setPathBrowserError('')
+    try {
+      const value = await api<PathBrowser>('/api/v1/executor/path-browser/directories', { method: 'POST', body: JSON.stringify({ parent: pathBrowser.path, name }) })
+      setPathBrowser(value)
+      setPathBrowserMode(value.mode)
+      setPathBrowserPath(value.path)
+      addWritableRoot(value.path)
+      setNewFolderName('')
+    } catch (err) {
+      setPathBrowserError(err instanceof Error ? err.message : String(err))
+    } finally {
+      setPathBrowserLoading(false)
+    }
   }
 
   const renderConsole = () => <>
@@ -558,8 +642,13 @@ export default function App() {
       <section className="audit-timeline">{asArray(traceEvents).length ? asArray(traceEvents).map(event => <article key={event.sequence}><span>{event.sequence}</span><div><header><b>{event.type}</b><time>{new Date(event.timestamp).toLocaleString('zh-CN')}</time></header><code>{event.event_hash.slice(0, 20)}…</code>{event.data !== undefined && <details className="audit-detail"><summary>结构化事件数据</summary><pre>{JSON.stringify(event.data, null, 2)}</pre></details>}</div></article>) : <p className="muted">从会话或系统概览选择任务后显示完整 Trace。</p>}</section>
     </>}
     {view === 'allowlist' && <><div className="page-lead"><h2>Agent 管控路径</h2><p>配置文件写动作允许触达的目录。保存后 server 立即使用新路径生成审批快照；这些路径只能缩小管理员在执行端配置的范围，因此无需重启 safeops-privexec。</p></div>
-      <div className="workspace-grid"><section className="workspace-card"><h3>当前管控范围</h3><div className="bar-row"><span>写动作流程</span><b>{allowlistConfig?.write_actions_enabled ? '已启用' : '未启用'}</b></div><div className="bar-row"><span>配置文件</span><b>{allowlistConfig?.config_path || '-'}</b></div><div className="bar-row"><span>隔离目录</span><b>{allowlistConfig?.quarantine_root || '-'}</b></div><div className="bar-row"><span>执行端重启</span><b>{allowlistConfig?.requires_executor_restart ? '需要' : '不需要'}</b></div>{asArray(allowlistConfig?.managed_roots).length ? <div className="path-list">{asArray(allowlistConfig?.managed_roots).map(root => <code key={root}>{root}</code>)}</div> : <p className="muted">尚未加载管控路径。</p>}{asArray(allowlistConfig?.missing_roots).length > 0 && <div className="warning-card"><strong>以下目录当前不存在</strong>{asArray(allowlistConfig?.missing_roots).map(root => <code key={root}>{root}</code>)}</div>}</section>
-        <section className="workspace-card"><h3>编辑 allowlist</h3><form className="settings-form" onSubmit={saveAllowlistConfig}><label>管控路径<textarea className="path-textarea" value={allowlistText} onChange={event => setAllowlistText(event.target.value)} placeholder="/var/lib/safeops/lab&#10;/var/lib/safeops/lab/config" rows={8} /></label><div className="settings-actions"><button type="button" disabled={savingAllowlist} onClick={() => void loadAllowlistConfig()}>重新加载</button><button disabled={savingAllowlist}>{savingAllowlist ? '保存中' : '保存路径'}</button></div><small>每行一个绝对路径；必须位于管理员配置的 Lab 路径内，不能使用根目录或与隔离目录重叠。保存不会创建目录。</small></form></section></div>
+      <div className="workspace-grid allowlist-layout"><section className="workspace-card"><h3>当前管控范围</h3><div className="bar-row"><span>写动作流程</span><b>{allowlistConfig?.write_actions_enabled ? '已启用' : '未启用'}</b></div><div className="bar-row"><span>配置文件</span><b>{allowlistConfig?.config_path || '-'}</b></div><div className="bar-row"><span>隔离目录</span><b>{allowlistConfig?.quarantine_root || '-'}</b></div><div className="bar-row"><span>执行端重启</span><b>{allowlistConfig?.requires_executor_restart ? '需要' : '不需要'}</b></div>{asArray(allowlistConfig?.managed_roots).length ? <div className="path-list">{asArray(allowlistConfig?.managed_roots).map(root => <code key={root}>{root}</code>)}</div> : <p className="muted">尚未加载管控路径。</p>}{allowlistMissingRoots.length > 0 && <div className="warning-card"><strong>以下目录当前不存在</strong>{allowlistMissingRoots.map(root => <code key={root}>{root}</code>)}</div>}</section>
+        <section className="workspace-card"><h3>选择管控路径</h3><div className="browser-toolbar"><div className="segmented" role="group" aria-label="浏览模式"><button type="button" className={pathBrowserMode === 'read' ? 'active' : ''} onClick={() => switchPathBrowserMode('read')}>只读浏览</button><button type="button" className={pathBrowserMode === 'write' ? 'active' : ''} onClick={() => switchPathBrowserMode('write')}>可写选择</button></div><div className="browser-path"><input aria-label="资源管理器路径" value={pathBrowserPath} onChange={event => setPathBrowserPath(event.target.value)} /><button type="button" disabled={pathBrowserLoading} onClick={() => void loadPathBrowser(pathBrowserPath, pathBrowserMode)}>打开</button></div></div>{pathBrowserError && <p className="browser-error">{pathBrowserError}</p>}{pathBrowser && <div className="file-browser" aria-label="资源管理器视图"><div className="browser-current"><button type="button" disabled={!pathBrowser.parent || pathBrowserLoading} onClick={() => pathBrowser.parent && void loadPathBrowser(pathBrowser.parent, pathBrowserMode)}>上一级</button><code>{pathBrowser.path}</code>{pathBrowserMode === 'write' && pathBrowser.can_select_write && !pathBrowser.write_root_missing && <button type="button" onClick={() => addWritableRoot(pathBrowser.path)}>选择当前目录</button>}</div>{pathBrowser.write_root_missing && <p className="browser-warning">当前可写根目录尚未创建；只能在已存在的可写根目录内新建子目录。</p>}{pathBrowserMode === 'write' && pathBrowser.can_create_child && <div className="new-folder"><input aria-label="新建文件夹名称" value={newFolderName} onChange={event => setNewFolderName(event.target.value)} placeholder="新建文件夹名称" /><button type="button" disabled={pathBrowserLoading || !newFolderName.trim()} onClick={createBrowserDirectory}>新建文件夹</button></div>}<div className="browser-entries">{asArray(pathBrowser.entries).length ? asArray(pathBrowser.entries).map(entry => <div className="browser-entry" key={entry.path}><button type="button" onClick={() => void loadPathBrowser(entry.path, pathBrowserMode)}><span>▣</span><b>{entry.name}</b><small>{entry.mode} · {new Date(entry.modified).toLocaleString('zh-CN')}</small></button>{pathBrowserMode === 'write' && entry.selectable_write && <button type="button" onClick={() => addWritableRoot(entry.path)}>选择</button>}</div>) : <p className="muted">当前目录没有可浏览子目录。</p>}{pathBrowser.truncated && <p className="muted">目录项已截断，请输入更精确路径。</p>}</div></div>}<div className="path-picker" aria-label="候选管控路径">{allowlistCandidates.length ? allowlistCandidates.map(path => {
+          const selected = allowlistDraftRoots.includes(path)
+          const missing = allowlistMissingRoots.includes(path)
+          return <label className={`path-option ${selected ? 'selected' : ''} ${missing ? 'missing' : ''}`} key={path}><input type="checkbox" aria-label={`选择 ${path}`} checked={selected} onChange={() => toggleAllowlistCandidate(path)} /><span><b>{pathName(path)}</b><code>{path}</code><small>{missing ? '当前目录不存在，保存不会创建目录' : selected ? '将纳入 Agent 管控快照范围' : '可选择为 Agent 管控路径'}</small></span></label>
+        }) : <p className="muted">尚未加载可选择路径。</p>}</div></section>
+        <section className="workspace-card allowlist-editor"><h3>保存预览</h3><form className="settings-form" onSubmit={saveAllowlistConfig}><div className="path-preview" aria-label="管控路径预览"><span>将保存 {allowlistDraftRoots.length} 个管控根</span>{allowlistDraftRoots.length ? allowlistDraftRoots.map(root => <code key={root}>{root}</code>) : <p className="muted">请选择候选路径，或在高级编辑中输入绝对路径。</p>}<small>执行端实际允许根会同时包含隔离目录：</small>{allowlistAllowedPreview.map(root => <code key={`allowed-${root}`} className={root === allowlistConfig?.quarantine_root ? 'quarantine' : ''}>{root}</code>)}</div><label>管控路径<textarea className="path-textarea" value={allowlistText} onChange={event => setAllowlistText(event.target.value)} placeholder="/home&#10;/home/safeops" rows={6} /></label><div className="settings-actions"><button type="button" disabled={savingAllowlist} onClick={() => void loadAllowlistConfig()}>重新加载</button><button type="button" disabled={savingAllowlist || allowlistDraftRoots.length === 0} onClick={() => setAllowlistText('')}>清空选择</button><button disabled={savingAllowlist || allowlistDraftRoots.length === 0}>{savingAllowlist ? '保存中' : '保存路径'}</button></div><small>每行一个绝对路径；必须位于管理员配置的可写路径内，不能使用根目录或与隔离目录重叠。保存不会创建目录。</small></form></section></div>
     </>}
     {view === 'llm' && <><div className="page-lead"><h2>LLM Provider 配置</h2><p>配置 OpenAI-compatible Chat Completions 接口。API key 仅写入后端数据目录，不会通过查询接口回显。</p></div>
       <div className="workspace-grid"><section className="workspace-card"><h3>当前状态</h3><div className="bar-row"><span>Provider</span><b>{llmConfig?.configured ? '已启用' : '未配置'}</b></div><div className="bar-row"><span>来源</span><b>{llmConfig?.source || '-'}</b></div><div className="bar-row"><span>API Key</span><b>{llmConfig?.api_key_configured ? '已保存' : '未保存'}</b></div><div className="bar-row"><span>模型</span><b>{llmConfig?.model || '-'}</b></div>{llmConfig?.updated_at && <p className="muted">更新时间：{new Date(llmConfig.updated_at).toLocaleString('zh-CN')}</p>}</section>

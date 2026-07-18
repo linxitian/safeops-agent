@@ -106,6 +106,8 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("DELETE /api/v1/llm/config", s.deleteLLMConfig)
 	s.mux.HandleFunc("GET /api/v1/executor/allowlist", s.getExecutorAllowlist)
 	s.mux.HandleFunc("PUT /api/v1/executor/allowlist", s.putExecutorAllowlist)
+	s.mux.HandleFunc("GET /api/v1/executor/path-browser", s.browseExecutorPath)
+	s.mux.HandleFunc("POST /api/v1/executor/path-browser/directories", s.createExecutorDirectory)
 	s.mux.HandleFunc("POST /api/v1/mcp/servers/{serverID}/enable", s.enableMCPServer)
 	s.mux.HandleFunc("POST /api/v1/mcp/servers/{serverID}/disable", s.disableMCPServer)
 	s.mux.HandleFunc("POST /api/v1/mcp/servers/{serverID}/rediscover", s.rediscoverMCPServer)
@@ -227,6 +229,49 @@ func (s *Server) putExecutorAllowlist(w http.ResponseWriter, r *http.Request) {
 	}
 	status.WriteActionsEnabled = s.agent != nil && s.agent.Actions != nil && s.agent.FileTargets != nil
 	writeJSON(w, http.StatusOK, status)
+}
+
+func (s *Server) browseExecutorPath(w http.ResponseWriter, r *http.Request) {
+	if s.executorAllowlist == nil {
+		writeError(w, http.StatusServiceUnavailable, errors.New("executor allowlist configuration is not enabled"))
+		return
+	}
+	limit := 200
+	if raw := strings.TrimSpace(r.URL.Query().Get("limit")); raw != "" {
+		parsed, err := strconv.Atoi(raw)
+		if err != nil {
+			writeError(w, http.StatusBadRequest, errors.New("limit must be a number"))
+			return
+		}
+		limit = parsed
+	}
+	browser, err := s.executorAllowlist.BrowsePath(r.URL.Query().Get("path"), r.URL.Query().Get("mode"), limit)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, browser)
+}
+
+func (s *Server) createExecutorDirectory(w http.ResponseWriter, r *http.Request) {
+	if s.executorAllowlist == nil {
+		writeError(w, http.StatusServiceUnavailable, errors.New("executor allowlist configuration is not enabled"))
+		return
+	}
+	var input struct {
+		Parent string `json:"parent"`
+		Name   string `json:"name"`
+	}
+	if err := decodeJSON(r, &input); err != nil {
+		writeError(w, http.StatusBadRequest, err)
+		return
+	}
+	browser, err := s.executorAllowlist.CreateDirectory(input.Parent, input.Name)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err)
+		return
+	}
+	writeJSON(w, http.StatusCreated, browser)
 }
 
 func (s *Server) web(w http.ResponseWriter, r *http.Request) {

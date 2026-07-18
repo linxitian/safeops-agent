@@ -19,10 +19,15 @@ type ApprovalCreator interface {
 	Resolve(context.Context, string, bool, string) (approval.Record, error)
 }
 
+type ActionScopeAuthorizer interface {
+	Authorize(contracts.ActionEnvelope) error
+}
+
 type ActionPreparer struct {
 	Store       storage.Store
 	Approvals   ApprovalCreator
 	Safety      SafetyEvaluator
+	Scope       ActionScopeAuthorizer
 	Trace       *trace.Writer
 	Secret      []byte
 	ApprovalTTL time.Duration
@@ -68,6 +73,12 @@ func (p ActionPreparer) Prepare(ctx context.Context, value task.Task, proposal c
 	}
 	if safety.Final.Outcome != contracts.RequireApproval {
 		return value, approval.Record{}, fmt.Errorf("write action must require approval, got %s", safety.Final.Outcome)
+	}
+	scopeEnvelope := contracts.ActionEnvelope{SchemaVersion: 1, TraceID: value.ID, TaskID: value.ID, SessionID: value.SessionID, Proposal: proposal, ProposalDigest: proposalDigest, TargetSnapshot: snapshot, Risk: safety.Risk, IntentDigest: safety.Intent.IntentDigest, PolicyVersion: safety.Static.PolicyVersion}
+	if p.Scope != nil {
+		if err := p.Scope.Authorize(scopeEnvelope); err != nil {
+			return value, approval.Record{}, fmt.Errorf("target scope denied before approval: %w", err)
+		}
 	}
 	targetDigest, err := snapshot.Digest()
 	if err != nil {

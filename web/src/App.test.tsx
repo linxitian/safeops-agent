@@ -60,8 +60,10 @@ const servers = {
 
 const allowlistConfig = {
   config_path: '/etc/safeops/executor.yaml',
-  managed_roots: ['/var/lib/safeops/lab'],
-  allowed_file_roots: ['/var/lib/safeops/lab', '/var/lib/safeops/quarantine'],
+  read_only_roots: ['/'],
+  managed_roots: ['/home'],
+  candidate_roots: ['/home', '/home/config', '/home/logs'],
+  allowed_file_roots: ['/home', '/var/lib/safeops/quarantine'],
   quarantine_root: '/var/lib/safeops/quarantine',
   missing_roots: [],
   requires_executor_restart: true,
@@ -98,6 +100,7 @@ function mockAPI(options: APIOptions = {}) {
   let sessionValue = options.session || session
   let llmConfig = options.llmConfig || { configured: false, api_key_configured: false, last_configuration: 'not configured' }
   let allowlist = options.allowlistConfig || allowlistConfig
+  const currentManagedRoots = () => ((allowlist as { managed_roots?: string[] }).managed_roots || [])
   vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
     const url = String(input)
     if (url.startsWith('/api/v1/sessions?')) return jsonResponse({ sessions: [sessionValue] })
@@ -125,6 +128,48 @@ function mockAPI(options: APIOptions = {}) {
       const body = JSON.parse(String(init.body)) as { managed_roots: string[] }
       allowlist = { ...allowlistConfig, managed_roots: body.managed_roots, allowed_file_roots: [...body.managed_roots, allowlistConfig.quarantine_root] }
       return jsonResponse(allowlist)
+    }
+    if (url.startsWith('/api/v1/executor/path-browser?')) {
+      const parsed = new URL(url, 'http://safeops.test')
+      const mode = parsed.searchParams.get('mode') || 'read'
+      const path = parsed.searchParams.get('path') || (mode === 'write' ? '/home' : '/')
+      return jsonResponse({
+        path,
+        parent: path === '/' ? '' : path.split('/').slice(0, -1).join('/') || '/',
+        mode,
+        read_only_roots: ['/'],
+        managed_roots: currentManagedRoots(),
+        candidate_roots: allowlistConfig.candidate_roots,
+        entries: mode === 'write' ? [
+          { name: 'config', path: '/home/config', is_dir: true, size_bytes: 0, mode: 'drwxr-x---', modified: '2026-07-17T01:02:03Z', selectable_read: true, selectable_write: true },
+          { name: 'logs', path: '/home/logs', is_dir: true, size_bytes: 0, mode: 'drwxr-x---', modified: '2026-07-17T01:02:03Z', selectable_read: true, selectable_write: true },
+        ] : [
+          { name: 'var', path: '/var', is_dir: true, size_bytes: 0, mode: 'drwxr-xr-x', modified: '2026-07-17T01:02:03Z', selectable_read: true, selectable_write: false },
+        ],
+        truncated: false,
+        can_select_read: true,
+        can_select_write: mode === 'write',
+        can_create_child: mode === 'write',
+        write_root_missing: false,
+      })
+    }
+    if (url === '/api/v1/executor/path-browser/directories' && init?.method === 'POST') {
+      const body = JSON.parse(String(init.body)) as { parent: string; name: string }
+      const created = `${body.parent}/${body.name}`.replace(/\/+/g, '/')
+      return jsonResponse({
+        path: created,
+        parent: body.parent,
+        mode: 'write',
+        read_only_roots: ['/'],
+        managed_roots: currentManagedRoots(),
+        candidate_roots: [...allowlistConfig.candidate_roots, created],
+        entries: [],
+        truncated: false,
+        can_select_read: true,
+        can_select_write: true,
+        can_create_child: true,
+        write_root_missing: false,
+      }, 201)
     }
     if (url === '/api/v1/mcp/servers') return jsonResponse({ servers: options.servers === undefined ? servers.servers : options.servers })
     if (url === '/api/v1/approvals') return jsonResponse({ approvals: options.approvals === undefined ? [] : options.approvals })
@@ -175,7 +220,7 @@ describe('SafeOps Chinese operational UI', () => {
 
     await user.click(screen.getByRole('button', { name: '管控路径' }))
     await screen.findByRole('heading', { name: 'Agent 管控路径' })
-    expect(screen.getAllByText('/var/lib/safeops/lab').length).toBeGreaterThan(0)
+    expect(screen.getAllByText('/home').length).toBeGreaterThan(0)
   })
 
   it('treats null session messages as an empty durable session', async () => {
@@ -244,14 +289,76 @@ describe('SafeOps Chinese operational UI', () => {
     await screen.findByRole('heading', { name: 'Agent 管控路径' })
     const textarea = screen.getByLabelText('管控路径')
     await user.clear(textarea)
-    await user.type(textarea, '/var/lib/safeops/lab/config')
+    await user.type(textarea, '/home/config')
     await user.click(screen.getByRole('button', { name: '保存路径' }))
 
-    await waitFor(() => expect(screen.getAllByText('/var/lib/safeops/lab/config').length).toBeGreaterThan(0))
+    await waitFor(() => expect(screen.getAllByText('/home/config').length).toBeGreaterThan(0))
     expect(fetch).toHaveBeenCalledWith('/api/v1/executor/allowlist', expect.objectContaining({
       method: 'PUT',
-      body: JSON.stringify({ managed_roots: ['/var/lib/safeops/lab/config'] }),
+      body: JSON.stringify({ managed_roots: ['/home/config'] }),
     }))
+  })
+
+  it('previews and saves executor allowlist paths through graphical selection', async () => {
+    const user = userEvent.setup()
+    render(<App />)
+
+    await screen.findByRole('heading', { name: '测试会话' })
+    await user.click(screen.getByRole('button', { name: '管控路径' }))
+    await screen.findByRole('heading', { name: 'Agent 管控路径' })
+    await user.click(screen.getByRole('checkbox', { name: '选择 /home' }))
+    await user.click(screen.getByRole('checkbox', { name: '选择 /home/config' }))
+
+    expect((screen.getByLabelText('管控路径') as HTMLTextAreaElement).value).toBe('/home/config')
+    expect(screen.getByLabelText('管控路径预览').textContent).toContain('将保存 1 个管控根')
+    await user.click(screen.getByRole('button', { name: '保存路径' }))
+
+    await waitFor(() => expect(screen.getAllByText('/home/config').length).toBeGreaterThan(0))
+    expect(fetch).toHaveBeenCalledWith('/api/v1/executor/allowlist', expect.objectContaining({
+      method: 'PUT',
+      body: JSON.stringify({ managed_roots: ['/home/config'] }),
+    }))
+  })
+
+  it('selects and creates writable folders from the resource manager view', async () => {
+    const user = userEvent.setup()
+    render(<App />)
+
+    await screen.findByRole('heading', { name: '测试会话' })
+    await user.click(screen.getByRole('button', { name: '管控路径' }))
+    await screen.findByRole('heading', { name: 'Agent 管控路径' })
+    await user.click(screen.getByRole('button', { name: '可写选择' }))
+    await screen.findByLabelText('资源管理器视图')
+    await user.click(screen.getAllByRole('button', { name: '选择' })[0])
+    expect((screen.getByLabelText('管控路径') as HTMLTextAreaElement).value).toContain('/home/config')
+
+    await user.type(screen.getByLabelText('新建文件夹名称'), 'reports')
+    await user.click(screen.getByRole('button', { name: '新建文件夹' }))
+    await waitFor(() => expect((screen.getByLabelText('管控路径') as HTMLTextAreaElement).value).toContain('/home/reports'))
+    expect(fetch).toHaveBeenCalledWith('/api/v1/executor/path-browser/directories', expect.objectContaining({
+      method: 'POST',
+      body: JSON.stringify({ parent: '/home', name: 'reports' }),
+    }))
+  })
+
+  it('preserves unsaved allowlist roots while switching browser modes', async () => {
+    const user = userEvent.setup()
+    render(<App />)
+
+    await screen.findByRole('heading', { name: '测试会话' })
+    await user.click(screen.getByRole('button', { name: '管控路径' }))
+    await screen.findByRole('heading', { name: 'Agent 管控路径' })
+    const editor = screen.getByLabelText('管控路径') as HTMLTextAreaElement
+    await user.clear(editor)
+    await user.type(editor, '/home/unsaved-draft')
+
+    await user.click(screen.getByRole('button', { name: '可写选择' }))
+    await screen.findByLabelText('资源管理器视图')
+    expect(editor.value).toBe('/home/unsaved-draft')
+
+    await user.click(screen.getByRole('button', { name: '只读浏览' }))
+    await waitFor(() => expect((screen.getByLabelText('资源管理器路径') as HTMLInputElement).value).toBe('/'))
+    expect(editor.value).toBe('/home/unsaved-draft')
   })
 
   it('renames a session through the inline dialog instead of browser prompt', async () => {

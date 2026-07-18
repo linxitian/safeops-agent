@@ -119,6 +119,9 @@ func TestDecisionSystemPromptConstrainsAmbiguousFollowupsToSelectedResources(t *
 	if !strings.Contains(decisionSystemPrompt, "local_read_scope is an authoritative local-policy boundary") || !strings.Contains(decisionSystemPrompt, "excluded_paths") || !strings.Contains(decisionSystemPrompt, "never authorizes expanding to another root") || !strings.Contains(decisionSystemPrompt, "guard_feedback") {
 		t.Fatal("system prompt does not enforce local read scope or bounded guard feedback")
 	}
+	if !strings.Contains(decisionSystemPrompt, "If final_only is true") || !strings.Contains(decisionSystemPrompt, "must not return tool, action_request, or replan") {
+		t.Fatal("system prompt does not enforce evidence-backed final-only mode")
+	}
 }
 
 func TestOpenAICompatibleUsesExtendedDefaultTimeout(t *testing.T) {

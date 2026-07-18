@@ -61,6 +61,73 @@ func TestGeneralRuntimeReentersPlannerWithToolResult(t *testing.T) {
 	}
 }
 
+func TestGeneralRuntimeReservesDeadlineForEvidenceBackedFinal(t *testing.T) {
+	ctx := context.Background()
+	store, err := storage.NewFileStore(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	traceWriter, err := trace.NewWriter(store.Root() + "/traces")
+	if err != nil {
+		t.Fatal(err)
+	}
+	now := time.Now().UTC()
+	s := session.Session{ID: "ses_final_reserve", Name: "final reserve", CreatedAt: now, UpdatedAt: now}
+	if err := store.SaveSession(ctx, s); err != nil {
+		t.Fatal(err)
+	}
+	tools := fakeGeneralTools{}
+	planner := &sequencePlanner{decisions: []llm.Decision{
+		{Kind: llm.DecisionTool, DecisionSummary: "读取系统负载", ServerID: "system", Tool: "system.get_load_average", Arguments: map[string]any{}, ExpectedObservation: "负载"},
+		{Kind: llm.DecisionFinal, DecisionSummary: "在截止时间前总结", FinalAnswer: "当前负载已经通过真实 MCP 证据确认。"},
+	}}
+	orchestrator := &Orchestrator{Store: store, Registry: tools, Capabilities: tools, Planner: planner, Safety: fakeSafety{}, Trace: traceWriter, ToolTimeout: time.Second}
+	prepared, err := orchestrator.Prepare(ctx, "task_final_reserve", s.ID, "查看当前系统负载")
+	if err != nil {
+		t.Fatal(err)
+	}
+	prepared.Runtime.DeadlineAt = time.Now().UTC().Add(30 * time.Second)
+	if err := store.SaveTask(ctx, prepared); err != nil {
+		t.Fatal(err)
+	}
+	completed, err := orchestrator.Run(ctx, prepared.ID, s.ID, prepared.OriginalRequest, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if completed.State != task.Completed || len(planner.requests) != 2 {
+		t.Fatalf("unexpected finalization result: task=%+v requests=%d", completed, len(planner.requests))
+	}
+	if planner.requests[0].FinalOnly {
+		t.Fatal("final-only mode was enabled before evidence existed")
+	}
+	finalRequest := planner.requests[1]
+	if !finalRequest.FinalOnly || len(finalRequest.Observations) != 1 || len(finalRequest.Tools) != 0 || len(finalRequest.ManagedActions) != 0 {
+		t.Fatalf("final-only request retained capabilities or lost evidence: %+v", finalRequest)
+	}
+}
+
+func TestGeneralRuntimeRejectsToolDuringFinalOnlyMode(t *testing.T) {
+	ctx := context.Background()
+	store, _ := storage.NewFileStore(t.TempDir())
+	traceWriter, _ := trace.NewWriter(store.Root() + "/traces")
+	now := time.Now().UTC()
+	s := session.Session{ID: "ses_final_only_tool", Name: "final only", CreatedAt: now, UpdatedAt: now}
+	_ = store.SaveSession(ctx, s)
+	tools := fakeGeneralTools{}
+	planner := &sequencePlanner{decisions: []llm.Decision{{Kind: llm.DecisionTool, DecisionSummary: "继续读取", ServerID: "system", Tool: "system.get_load_average", Arguments: map[string]any{}}}}
+	orchestrator := &Orchestrator{Store: store, Registry: tools, Capabilities: tools, Planner: planner, Safety: fakeSafety{}, Trace: traceWriter, ToolTimeout: time.Second}
+	prepared, _ := orchestrator.Prepare(ctx, "task_final_only_tool", s.ID, "查看当前系统负载")
+	prepared.IntentType = "general_bounded_operation"
+	prepared.Runtime.DeadlineAt = time.Now().UTC().Add(30 * time.Second)
+	prepared.Runtime.Observations = []task.RuntimeObservation{{ServerID: "system", Tool: "system.get_load_average", EvidenceRef: "trace://task_final_only_tool/1"}}
+	prepared.EvidenceRefs = []string{"trace://task_final_only_tool/1"}
+	_ = store.SaveTask(ctx, prepared)
+	failed, err := orchestrator.Run(ctx, prepared.ID, s.ID, prepared.OriginalRequest, nil)
+	if err == nil || !strings.Contains(err.Error(), "evidence-backed finalization was required") || failed.State != task.Failed || failed.Runtime.ToolCalls != 0 {
+		t.Fatalf("non-final decision was not rejected: task=%+v err=%v", failed, err)
+	}
+}
+
 func TestGeneralRuntimeRecordsReadToolFailureAndContinues(t *testing.T) {
 	ctx := context.Background()
 	store, err := storage.NewFileStore(t.TempDir())

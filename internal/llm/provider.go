@@ -82,6 +82,7 @@ type GuardFeedback struct {
 type DecisionRequest struct {
 	Objective       string                    `json:"objective"`
 	OriginalRequest string                    `json:"original_request"`
+	FinalOnly       bool                      `json:"final_only,omitempty"`
 	SessionContext  *SessionContext           `json:"session_context,omitempty"`
 	Tools           []ToolCapability          `json:"tools"`
 	ManagedActions  []ManagedActionCapability `json:"managed_actions,omitempty"`

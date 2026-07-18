@@ -77,6 +77,52 @@ func TestOpenAICompatibleRepairsMalformedDecisionOnce(t *testing.T) {
 	}
 }
 
+func TestOpenAICompatibleRepairsUncitedFinalOnce(t *testing.T) {
+	requests := 0
+	reference := "trace://task_target/11"
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requests++
+		var request struct {
+			Messages []chatMessage `json:"messages"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
+			t.Fatal(err)
+		}
+		content := `{"kind":"final","decision_summary":"基于证据总结","final_answer":"磁盘状态正常。"}`
+		if requests == 2 {
+			if len(request.Messages) != 3 || !strings.Contains(request.Messages[2].Content, "must cite at least one provided evidence_ref exactly") {
+				t.Fatalf("citation repair feedback missing: %+v", request.Messages)
+			}
+			content = `{"kind":"final","decision_summary":"基于证据总结","final_answer":"磁盘状态正常，证据：trace://task_target/11。"}`
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{"choices": []any{map[string]any{"message": map[string]any{"role": "assistant", "content": content}}}})
+	}))
+	defer server.Close()
+	provider, _ := NewOpenAICompatible(Config{BaseURL: server.URL, APIKey: "key", Model: "model", Client: server.Client()})
+	decision, err := provider.Decide(context.Background(), DecisionRequest{Objective: "检查磁盘", Observations: []Observation{{Tool: "system.get_disk_usage", EvidenceRef: reference}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if requests != 2 || !strings.Contains(decision.FinalAnswer, reference) {
+		t.Fatalf("citation repair result = (%d, %+v), want one retry with exact reference", requests, decision)
+	}
+}
+
+func TestValidateDecisionForRequestRequiresExactEvidenceReference(t *testing.T) {
+	input := DecisionRequest{Observations: []Observation{{EvidenceRef: "trace://task/11"}}}
+	uncited := Decision{Kind: DecisionFinal, FinalAnswer: "已经检查完成。"}
+	if err := validateDecisionForRequest(uncited, input); err == nil {
+		t.Fatal("uncited final answer was accepted")
+	}
+	cited := Decision{Kind: DecisionFinal, FinalAnswer: "已经检查完成（trace://task/11）。"}
+	if err := validateDecisionForRequest(cited, input); err != nil {
+		t.Fatal(err)
+	}
+	if err := validateDecisionForRequest(Decision{Kind: DecisionTool}, input); err != nil {
+		t.Fatalf("non-final decision was incorrectly subjected to citation validation: %v", err)
+	}
+}
+
 func TestOpenAICompatibleStopsAfterOneFailedRepair(t *testing.T) {
 	requests := 0
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
@@ -121,6 +167,9 @@ func TestDecisionSystemPromptConstrainsAmbiguousFollowupsToSelectedResources(t *
 	}
 	if !strings.Contains(decisionSystemPrompt, "If final_only is true") || !strings.Contains(decisionSystemPrompt, "must not return tool, action_request, or replan") {
 		t.Fatal("system prompt does not enforce evidence-backed final-only mode")
+	}
+	if !strings.Contains(decisionSystemPrompt, "1 MiB = 1048576 bytes") || !strings.Contains(decisionSystemPrompt, "Never describe a millions-of-bytes file as gigabytes") || !strings.Contains(decisionSystemPrompt, "cite at least one provided evidence_ref exactly") {
+		t.Fatal("system prompt does not constrain numeric evidence or exact citations")
 	}
 }
 

@@ -13,6 +13,7 @@ type Store interface {
 	UpdateSession(context.Context, string, func(*session.Session) error) (session.Session, error)
 	GetSession(context.Context, string) (session.Session, error)
 	ListSessions(context.Context) ([]session.Session, error)
+	PrepareTask(context.Context, task.Task, func(*session.Session) error) (session.Session, error)
 	SaveTask(context.Context, task.Task) error
 	ClaimTask(context.Context, string, string, string, time.Duration) (task.Task, error)
 	ReleaseTask(context.Context, string, string, uint64) (task.Task, error)

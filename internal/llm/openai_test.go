@@ -89,6 +89,39 @@ func TestDecodeStructuredDecisionRejectsAmbiguousAnswerAlias(t *testing.T) {
 	}
 }
 
+func TestDecodeStructuredDecisionAcceptsExpectedObservationsAlias(t *testing.T) {
+	decision, err := decodeStructuredDecision(`{"kind":"tool","decision_summary":"读取负载确认现状","server_id":"system","tool":"system.get_load_average","arguments":{},"expected_observations":"结构化负载"}`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if decision.ExpectedObservation != "结构化负载" {
+		t.Fatalf("expected_observations alias was not normalized: %+v", decision)
+	}
+}
+
+func TestDecodeStructuredDecisionAcceptsMatchingExpectedObservationAliases(t *testing.T) {
+	decision, err := decodeStructuredDecision(`{"kind":"tool","decision_summary":"读取负载确认现状","server_id":"system","tool":"system.get_load_average","arguments":{},"expected_observation":"结构化负载","expected_observations":"结构化负载"}`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if decision.ExpectedObservation != "结构化负载" {
+		t.Fatalf("matching expected observation aliases were not normalized: %+v", decision)
+	}
+}
+
+func TestDecodeStructuredDecisionRejectsInvalidExpectedObservationsAlias(t *testing.T) {
+	for name, content := range map[string]string{
+		"conflict": `{"kind":"tool","decision_summary":"x","server_id":"system","tool":"system.get_load_average","arguments":{},"expected_observation":"a","expected_observations":"b"}`,
+		"array":    `{"kind":"tool","decision_summary":"x","server_id":"system","tool":"system.get_load_average","arguments":{},"expected_observations":["a"]}`,
+	} {
+		t.Run(name, func(t *testing.T) {
+			if _, err := decodeStructuredDecision(content); err == nil {
+				t.Fatal("invalid expected_observations alias was accepted")
+			}
+		})
+	}
+}
+
 func TestDecodeStructuredDecisionAcceptsManagedActionRequest(t *testing.T) {
 	decision, err := decodeStructuredDecision(`{"kind":"action_request","decision_summary":"申请重启服务","tool":"service.restart","target":{"type":"service","id":"safeops-demo-web.service"},"arguments":{},"expected_observation":"服务恢复 active"}`)
 	if err != nil {

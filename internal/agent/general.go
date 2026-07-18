@@ -28,9 +28,6 @@ func (o *Orchestrator) runGeneral(ctx context.Context, value task.Task, emit Eve
 		return value, errors.New("general runtime capability source is not configured")
 	}
 	capabilities := o.Capabilities.AvailableTools()
-	if len(capabilities) == 0 {
-		return value, errors.New("no healthy MCP tools are available")
-	}
 	managedActions := o.managedActionCapabilities()
 	available := map[string]llm.ToolCapability{}
 	for _, capability := range capabilities {
@@ -73,31 +70,42 @@ func (o *Orchestrator) runGeneral(ctx context.Context, value task.Task, emit Eve
 			return value, err
 		}
 		finalOnly := shouldFinalizeGeneral(value, now)
-		requestTools := capabilities
-		requestManagedActions := managedActions
-		if finalOnly {
-			requestTools = nil
-			requestManagedActions = nil
+		if !finalOnly && len(capabilities) == 0 {
+			return value, errors.New("no healthy MCP tools are available")
 		}
 		value.Transition(task.Investigating)
 		if err := o.Store.SaveTask(ctx, value); err != nil {
 			return value, err
 		}
-		decisionCtx, cancelDecision := context.WithDeadline(ctx, value.Runtime.DeadlineAt)
-		decision, err := o.Planner.Decide(decisionCtx, llm.DecisionRequest{
-			Objective:       value.Objective,
-			OriginalRequest: value.OriginalRequest,
-			FinalOnly:       finalOnly,
-			SessionContext:  plannerSessionContext,
-			Tools:           requestTools,
-			ManagedActions:  requestManagedActions,
-			LocalReadScope:  plannerReadScope(readScope),
-			GuardFeedback:   plannerGuardFeedback(value.Runtime.GuardFeedback),
-			Observations:    plannerObservations(value.Runtime.Observations),
-			Iteration:       value.Runtime.Iterations,
-			ToolCalls:       value.Runtime.ToolCalls,
-		})
-		cancelDecision()
+		decide := func(finalOnly bool) (llm.Decision, error) {
+			requestTools := capabilities
+			requestManagedActions := managedActions
+			if finalOnly {
+				requestTools = nil
+				requestManagedActions = nil
+			}
+			decisionCtx, cancelDecision := context.WithDeadline(ctx, generalDecisionDeadline(value, finalOnly))
+			defer cancelDecision()
+			return o.Planner.Decide(decisionCtx, llm.DecisionRequest{
+				Objective:       value.Objective,
+				OriginalRequest: value.OriginalRequest,
+				FinalOnly:       finalOnly,
+				SessionContext:  plannerSessionContext,
+				Tools:           requestTools,
+				ManagedActions:  requestManagedActions,
+				LocalReadScope:  plannerReadScope(readScope),
+				GuardFeedback:   plannerGuardFeedback(value.Runtime.GuardFeedback),
+				Observations:    plannerObservations(value.Runtime.Observations),
+				Iteration:       value.Runtime.Iterations,
+				ToolCalls:       value.Runtime.ToolCalls,
+			})
+		}
+		decision, err := decide(finalOnly)
+		if !finalOnly && shouldFinalizeGeneral(value, time.Now().UTC()) && (errors.Is(err, context.DeadlineExceeded) || err == nil && decision.Kind != llm.DecisionFinal) {
+			finalOnly = true
+			emitEvent(emit, value, "已进入证据总结时间，停止扩展调查")
+			decision, err = decide(true)
+		}
 		if err != nil {
 			return value, err
 		}
@@ -290,6 +298,13 @@ func (o *Orchestrator) runGeneral(ctx context.Context, value task.Task, emit Eve
 
 func shouldFinalizeGeneral(value task.Task, now time.Time) bool {
 	return len(value.Runtime.Observations) > 0 && len(value.EvidenceRefs) > 0 && !now.Before(value.Runtime.DeadlineAt.Add(-generalFinalizationReserve))
+}
+
+func generalDecisionDeadline(value task.Task, finalOnly bool) time.Time {
+	if finalOnly || len(value.Runtime.Observations) == 0 || len(value.EvidenceRefs) == 0 {
+		return value.Runtime.DeadlineAt
+	}
+	return value.Runtime.DeadlineAt.Add(-generalFinalizationReserve)
 }
 
 func replanWithoutEvidence(decision llm.Decision, value task.Task) (llm.Decision, bool) {

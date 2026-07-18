@@ -357,10 +357,10 @@ func TestGeneralRuntimePreparesManagedActionRequestForApproval(t *testing.T) {
 		Actions:       &ActionPreparer{Store: store, Approvals: approvalStore, Safety: pipeline, Scope: allowAllScope{}, Trace: traceWriter, Secret: []byte("0123456789abcdef0123456789abcdef")},
 		ActionTargets: fakeManagedActionTargets{service: "safeops-demo-web.service"},
 	}
-	if _, err := orchestrator.Prepare(ctx, "task_managed_action", s.ID, "检查并在安全时重启 demo 服务"); err != nil {
+	if _, err := orchestrator.Prepare(ctx, "task_managed_action", s.ID, "检查并在安全时重启 safeops-demo-web.service"); err != nil {
 		t.Fatal(err)
 	}
-	waiting, err := orchestrator.Run(ctx, "task_managed_action", s.ID, "检查并在安全时重启 demo 服务", nil)
+	waiting, err := orchestrator.Run(ctx, "task_managed_action", s.ID, "检查并在安全时重启 safeops-demo-web.service", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -534,6 +534,34 @@ func TestManagedActionEvidenceRequiresExactStructuredIdentity(t *testing.T) {
 	processValue = task.Task{EvidenceRefs: []string{exactProcess.EvidenceRef}, Runtime: task.RuntimeCheckpoint{Observations: []task.RuntimeObservation{exactProcess}}}
 	if !managedActionEvidenceSupports(processValue, processTarget, processSnapshot) {
 		t.Fatal("exact structured process identity was rejected")
+	}
+}
+
+func TestManagedActionRequestRequiresExactOperatorTarget(t *testing.T) {
+	serviceTarget := contracts.TargetRef{Type: "service", ID: "safeops-demo-web.service"}
+	serviceSnapshot := contracts.TargetSnapshot{Type: "service", ServiceName: serviceTarget.ID}
+	for _, request := range []string{"restart safeops-demo-web.service", "please restart safeops-demo-web", "检查后重启 safeops-demo-web.service"} {
+		if !managedActionRequestTargets(request, "service.restart", serviceTarget, serviceSnapshot) {
+			t.Fatalf("exact service target was rejected: %q", request)
+		}
+	}
+	for _, request := range []string{"restart nginx", "restart safeops-demo-web-canary.service", "restart nginx, then inspect safeops-demo-web.service"} {
+		if managedActionRequestTargets(request, "service.restart", serviceTarget, serviceSnapshot) {
+			t.Fatalf("unrelated service target was accepted: %q", request)
+		}
+	}
+
+	processTarget := contracts.TargetRef{Type: "process", ID: "pid:7331:start:9911"}
+	processSnapshot := contracts.TargetSnapshot{Type: "process", PID: 7331, StartTicks: 9911}
+	for _, request := range []string{"terminate process 7331", "please stop pid:7331", "确认后终止进程 7331"} {
+		if !managedActionRequestTargets(request, "process.terminate", processTarget, processSnapshot) {
+			t.Fatalf("exact process target was rejected: %q", request)
+		}
+	}
+	for _, request := range []string{"terminate process 73310", "terminate process 7332, then inspect pid 7331", "check port 7331 and terminate the process"} {
+		if managedActionRequestTargets(request, "process.terminate", processTarget, processSnapshot) {
+			t.Fatalf("unrelated process target was accepted: %q", request)
+		}
 	}
 }
 

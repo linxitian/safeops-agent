@@ -12,6 +12,8 @@ import (
 	"os"
 	"strings"
 	"time"
+	"unicode"
+	"unicode/utf8"
 )
 
 const (
@@ -174,7 +176,7 @@ func validateDecisionForRequest(decision Decision, input DecisionRequest) error 
 		}
 		for _, observation := range input.Observations {
 			reference := strings.TrimSpace(observation.EvidenceRef)
-			if reference != "" && strings.Contains(decision.FinalAnswer, reference) {
+			if reference != "" && containsExactEvidenceReference(decision.FinalAnswer, reference) {
 				return nil
 			}
 		}
@@ -182,6 +184,36 @@ func validateDecisionForRequest(decision Decision, input DecisionRequest) error 
 	default:
 		return nil
 	}
+}
+
+func containsExactEvidenceReference(answer, reference string) bool {
+	for offset := 0; offset <= len(answer)-len(reference); {
+		relative := strings.Index(answer[offset:], reference)
+		if relative < 0 {
+			return false
+		}
+		start := offset + relative
+		end := start + len(reference)
+		beforeOK := start == 0
+		if !beforeOK {
+			previous, _ := utf8.DecodeLastRuneInString(answer[:start])
+			beforeOK = !isEvidenceReferenceRune(previous)
+		}
+		afterOK := end == len(answer)
+		if !afterOK {
+			next, _ := utf8.DecodeRuneInString(answer[end:])
+			afterOK = !isEvidenceReferenceRune(next)
+		}
+		if beforeOK && afterOK {
+			return true
+		}
+		offset = start + len(reference)
+	}
+	return false
+}
+
+func isEvidenceReferenceRune(value rune) bool {
+	return unicode.IsLetter(value) || unicode.IsNumber(value) || strings.ContainsRune("-._~:/?#[]@!$&'()*+,;=%", value)
 }
 
 func decisionRepairPrompt(contractErr error) string {

@@ -149,6 +149,11 @@ func TestValidateDecisionForRequestRequiresExactEvidenceReference(t *testing.T) 
 	if err := validateDecisionForRequest(cited, input); err != nil {
 		t.Fatal(err)
 	}
+	for _, answer := range []string{"错误引用 trace://task/110。", "错误引用 xtrace://task/11。", "错误引用 trace://task/11anything。"} {
+		if err := validateDecisionForRequest(Decision{Kind: DecisionFinal, FinalAnswer: answer}, input); err == nil {
+			t.Fatalf("non-exact evidence reference was accepted: %q", answer)
+		}
+	}
 	if err := validateDecisionForRequest(Decision{Kind: DecisionTool, ServerID: "system", Tool: "system.get_disk_usage"}, input); err != nil {
 		t.Fatalf("exact listed tool was rejected: %v", err)
 	}

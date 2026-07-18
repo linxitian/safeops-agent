@@ -172,6 +172,30 @@ func TestGeneralRuntimeSwitchesToFinalOnlyWhenPlannerCrossesCutoff(t *testing.T)
 	}
 }
 
+func TestGeneralRuntimeReservesFinalOnlyAttemptAfterIterationLimit(t *testing.T) {
+	ctx := context.Background()
+	store, _ := storage.NewFileStore(t.TempDir())
+	traceWriter, _ := trace.NewWriter(store.Root() + "/traces")
+	now := time.Now().UTC()
+	s := session.Session{ID: "ses_final_iteration", Name: "final iteration", CreatedAt: now, UpdatedAt: now}
+	_ = store.SaveSession(ctx, s)
+	planner := &sequencePlanner{decisions: []llm.Decision{{Kind: llm.DecisionFinal, DecisionSummary: "在保留尝试中总结", FinalAnswer: "已根据持久证据完成总结。"}}}
+	tools := fakeGeneralTools{}
+	orchestrator := &Orchestrator{Store: store, Registry: tools, Capabilities: tools, Planner: planner, Safety: fakeSafety{}, Trace: traceWriter, ToolTimeout: time.Second}
+	prepared, _ := orchestrator.Prepare(ctx, "task_final_iteration", s.ID, "总结已有调查")
+	prepared.IntentType = "general_bounded_operation"
+	prepared.Runtime.MaxIterations = MaxIterations
+	prepared.Runtime.Iterations = MaxIterations
+	prepared.Runtime.DeadlineAt = time.Now().UTC().Add(30 * time.Second)
+	prepared.Runtime.Observations = []task.RuntimeObservation{{ServerID: "system", Tool: "system.get_load_average", EvidenceRef: "trace://task_final_iteration/1"}}
+	prepared.EvidenceRefs = []string{"trace://task_final_iteration/1"}
+	_ = store.SaveTask(ctx, prepared)
+	completed, err := orchestrator.Run(ctx, prepared.ID, s.ID, prepared.OriginalRequest, nil)
+	if err != nil || completed.State != task.Completed || completed.Runtime.Iterations != MaxIterations || len(planner.requests) != 1 || !planner.requests[0].FinalOnly {
+		t.Fatalf("iteration limit consumed final-only reserve: task=%+v requests=%+v err=%v", completed, planner.requests, err)
+	}
+}
+
 func TestGeneralRuntimeRecordsReadToolFailureAndContinues(t *testing.T) {
 	ctx := context.Background()
 	store, err := storage.NewFileStore(t.TempDir())

@@ -66,10 +66,11 @@ func (o *Orchestrator) runGeneral(ctx context.Context, value task.Task, emit Eve
 
 	for {
 		now := time.Now().UTC()
-		if err := beginDecision(&value.Runtime, now); err != nil {
+		initializeRuntime(&value.Runtime, now)
+		finalOnly := shouldFinalizeGeneral(value, now)
+		if err := beginGeneralDecision(&value.Runtime, now, finalOnly); err != nil {
 			return value, err
 		}
-		finalOnly := shouldFinalizeGeneral(value, now)
 		if !finalOnly && len(capabilities) == 0 {
 			return value, errors.New("no healthy MCP tools are available")
 		}
@@ -298,6 +299,21 @@ func (o *Orchestrator) runGeneral(ctx context.Context, value task.Task, emit Eve
 
 func shouldFinalizeGeneral(value task.Task, now time.Time) bool {
 	return len(value.Runtime.Observations) > 0 && len(value.EvidenceRefs) > 0 && !now.Before(value.Runtime.DeadlineAt.Add(-generalFinalizationReserve))
+}
+
+func beginGeneralDecision(checkpoint *task.RuntimeCheckpoint, now time.Time, finalOnly bool) error {
+	initializeRuntime(checkpoint, now)
+	if !now.Before(checkpoint.DeadlineAt) {
+		return fmt.Errorf("agent task deadline reached: %w", context.DeadlineExceeded)
+	}
+	if checkpoint.Iterations >= checkpoint.MaxIterations {
+		if finalOnly {
+			return nil
+		}
+		return fmt.Errorf("agent iteration limit reached: %d", checkpoint.MaxIterations)
+	}
+	checkpoint.Iterations++
+	return nil
 }
 
 func generalDecisionDeadline(value task.Task, finalOnly bool) time.Time {

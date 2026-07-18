@@ -147,6 +147,7 @@ export default function App() {
   const inputRef = useRef<HTMLTextAreaElement | null>(null)
   const messagesRef = useRef<HTMLElement | null>(null)
   const initializedRef = useRef(false)
+  const allowlistInitializedRef = useRef(false)
   const lastSequenceRef = useRef<Record<string, number>>({})
   const streamedTaskIDsRef = useRef<Set<string>>(new Set())
 
@@ -296,7 +297,13 @@ export default function App() {
   }, [loadLLMConfig, view])
 
   useEffect(() => {
-    if (view === 'allowlist') loadAllowlistConfig().then(value => {
+    if (view !== 'allowlist') {
+      allowlistInitializedRef.current = false
+      return
+    }
+    if (allowlistInitializedRef.current) return
+    allowlistInitializedRef.current = true
+    loadAllowlistConfig().then(value => {
       const initialPath = pathBrowserMode === 'write' ? asArray(value.managed_roots)[0] || asArray(value.candidate_roots)[0] || '/' : asArray(value.read_only_roots)[0] || '/'
       return loadPathBrowser(initialPath, pathBrowserMode)
     }).catch(err => setError(err instanceof Error ? err.message : String(err)))

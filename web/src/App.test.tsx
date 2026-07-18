@@ -341,6 +341,26 @@ describe('SafeOps Chinese operational UI', () => {
     }))
   })
 
+  it('preserves unsaved allowlist roots while switching browser modes', async () => {
+    const user = userEvent.setup()
+    render(<App />)
+
+    await screen.findByRole('heading', { name: '测试会话' })
+    await user.click(screen.getByRole('button', { name: '管控路径' }))
+    await screen.findByRole('heading', { name: 'Agent 管控路径' })
+    const editor = screen.getByLabelText('管控路径') as HTMLTextAreaElement
+    await user.clear(editor)
+    await user.type(editor, '/home/unsaved-draft')
+
+    await user.click(screen.getByRole('button', { name: '可写选择' }))
+    await screen.findByLabelText('资源管理器视图')
+    expect(editor.value).toBe('/home/unsaved-draft')
+
+    await user.click(screen.getByRole('button', { name: '只读浏览' }))
+    await waitFor(() => expect((screen.getByLabelText('资源管理器路径') as HTMLInputElement).value).toBe('/'))
+    expect(editor.value).toBe('/home/unsaved-draft')
+  })
+
   it('renames a session through the inline dialog instead of browser prompt', async () => {
     const user = userEvent.setup()
     render(<App />)

@@ -447,6 +447,11 @@ func TestManagedActionRequiresExplicitOperatorIntent(t *testing.T) {
 	if !managedActionIntentAllows("检查后重启 demo 服务", "service.restart") {
 		t.Fatal("explicit service restart request was rejected")
 	}
+	for _, request := range []string{"restart nginx", "please restart safeops-demo-web.service", "check the unit, then restart nginx"} {
+		if !managedActionIntentAllows(request, "service.restart") {
+			t.Fatalf("direct English service restart request was rejected: %q", request)
+		}
+	}
 	for _, request := range []string{
 		"不要重启 demo 服务，只检查状态",
 		"别再重新启动 demo 服务",

@@ -21,6 +21,7 @@ var (
 	managedProcessSchema       = json.RawMessage(`{"type":"object","properties":{"pid":{"type":"integer","minimum":2,"maximum":4194304}},"required":["pid"],"additionalProperties":false}`)
 	processTargetPattern       = regexp.MustCompile(`^pid:([1-9][0-9]{0,9}):start:([0-9]{1,20})$`)
 	managedServiceNegative     = regexp.MustCompile(`(?:不要|别|不得|禁止|无需|不需|不应|不能|不可)(?:再|去|执行)?(?:重启|重新启动)|(?:do not|don't|dont|never|must not|should not|cannot|can't|without)(?:\s+\w+){0,3}\s+restart(?:ing)?\b|(?:no|avoid)\s+(?:service\s+)?restart(?:ing)?\b`)
+	managedServiceDirect       = regexp.MustCompile(`(?:^|[;,.]\s*|\b(?:please|then|and)\s+)restart\s+(?:the\s+)?[a-z0-9_.@-]+`)
 	managedProcessNegative     = regexp.MustCompile(`(?:不要|别|不得|禁止|无需|不需|不应|不能|不可)(?:再|去|执行)?(?:终止|结束|停止|杀掉|杀死|杀)(?:该|这个|目标)?进程|(?:do not|don't|dont|never|must not|should not|cannot|can't|without)(?:\s+\w+){0,3}\s+(?:terminate|kill|stop)(?:ing)?\b|(?:no|avoid)\s+(?:process\s+)?(?:termination|killing|stopping)\b`)
 )
 
@@ -239,7 +240,7 @@ func managedActionIntentAllows(request, tool string) bool {
 		if managedServiceNegative.MatchString(request) {
 			return false
 		}
-		return containsAny(request, "重启", "重新启动", "restart service", "restart the service", "service restart")
+		return containsAny(request, "重启", "重新启动", "restart service", "restart the service", "service restart") || managedServiceDirect.MatchString(request)
 	case "process.terminate":
 		if managedProcessNegative.MatchString(request) {
 			return false

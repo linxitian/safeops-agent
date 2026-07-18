@@ -79,12 +79,16 @@ type ToolRecord struct {
 }
 
 type DependencyState struct {
-	Name      string    `json:"name"`
-	Kind      string    `json:"kind"`
-	Available bool      `json:"available"`
-	Resolved  string    `json:"resolved,omitempty"`
-	Error     string    `json:"error,omitempty"`
-	CheckedAt time.Time `json:"checked_at"`
+	Name       string    `json:"name"`
+	Kind       string    `json:"kind"`
+	Available  bool      `json:"available"`
+	Resolved   string    `json:"resolved,omitempty"`
+	Mode       string    `json:"mode,omitempty"`
+	IsDir      bool      `json:"is_dir"`
+	SizeBytes  int64     `json:"size_bytes,omitempty"`
+	ModifiedAt time.Time `json:"modified_at,omitempty"`
+	Error      string    `json:"error,omitempty"`
+	CheckedAt  time.Time `json:"checked_at"`
 }
 
 type HealthRecord struct {
@@ -96,12 +100,17 @@ type HealthRecord struct {
 }
 
 type DiscoveryRecord struct {
-	DiscoveredAt  time.Time `json:"discovered_at"`
-	ServerName    string    `json:"server_name"`
-	ServerVersion string    `json:"server_version"`
-	ToolSetHash   string    `json:"tool_set_hash"`
-	ToolCount     int       `json:"tool_count"`
-	ToolsChanged  bool      `json:"tools_changed"`
+	DiscoveredAt        time.Time `json:"discovered_at"`
+	Status              Status    `json:"status"`
+	Error               string    `json:"error,omitempty"`
+	ServerName          string    `json:"server_name,omitempty"`
+	ServerVersion       string    `json:"server_version,omitempty"`
+	ProtocolVersion     string    `json:"protocol_version,omitempty"`
+	ToolSetHash         string    `json:"tool_set_hash,omitempty"`
+	ToolCount           int       `json:"tool_count"`
+	ToolsChanged        bool      `json:"tools_changed"`
+	DependenciesHealthy bool      `json:"dependencies_healthy"`
+	DurationMillis      int64     `json:"duration_millis"`
 }
 
 type ServerState struct {
@@ -110,6 +119,7 @@ type ServerState struct {
 	Error               string            `json:"error,omitempty"`
 	ActualServerName    string            `json:"actual_server_name,omitempty"`
 	ActualServerVersion string            `json:"actual_server_version,omitempty"`
+	ProtocolVersion     string            `json:"protocol_version,omitempty"`
 	Tools               []ToolRecord      `json:"tools"`
 	ToolSetHash         string            `json:"tool_set_hash,omitempty"`
 	PreviousToolSetHash string            `json:"previous_tool_set_hash,omitempty"`

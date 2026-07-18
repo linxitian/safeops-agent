@@ -184,7 +184,7 @@ button:focus-visible, textarea:focus-visible, input:focus-visible, summary:focus
 .server-card h3 { margin: 7px 0; font: 500 14px ui-monospace, monospace; }
 .server-card > p { min-height: 37px; color: #81988f; font-size: 10px; line-height: 1.7; }
 .server-card > small { color: #536b61; font-size: 9px; }
-.server-facts { display: grid; grid-template-columns: repeat(3,minmax(0,1fr)); gap: 6px; margin-top: 11px; }
+.server-facts { display: grid; grid-template-columns: repeat(4,minmax(0,1fr)); gap: 6px; margin-top: 11px; }
 .server-facts span { display: flex; flex-direction: column; gap: 3px; padding: 7px; border: 1px solid rgba(147,199,178,.08); border-radius: 7px; color: #60776d; font-size: 8px; }
 .server-facts b { overflow: hidden; color: #9eb4ab; font: 9px ui-monospace,monospace; text-overflow: ellipsis; white-space: nowrap; }
 .server-observability { margin-top: 9px; padding: 8px 0; border-top: 1px solid rgba(147,199,178,.08); border-bottom: 1px solid rgba(147,199,178,.08); }
@@ -195,9 +195,10 @@ button:focus-visible, textarea:focus-visible, input:focus-visible, summary:focus
 .dependency-list b { color: var(--green); font-size: 8px; }
 .dependency-list .missing b { color: #ff817c; }
 .dependency-list code { overflow: hidden; color: #82998f; font-size: 8px; text-overflow: ellipsis; white-space: nowrap; }
-.discovery-list span { grid-template-columns: auto auto minmax(0,1fr); }
+.discovery-list span { grid-template-columns: auto minmax(0,auto) minmax(0,1fr); }
 .discovery-list time, .discovery-list small { color: #536b61; font-size: 8px; }
 .discovery-list b { color: #9eb4ab; font: 8px ui-monospace,monospace; }
+.discovery-list small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .tool-list { max-height: 210px; overflow-y: auto; margin-top: 12px; border-top: 1px solid var(--line); }
 .tool-list details { padding: 7px 0; border-bottom: 1px solid rgba(147,199,178,.07); }
 .tool-list summary { color: #9eb4ab; cursor: pointer; font: 10px ui-monospace, monospace; }

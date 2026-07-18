@@ -17,6 +17,7 @@ import (
 
 const runServerEnv = "SAFEOPS_REGISTRY_TEST_SERVER"
 const dynamicToolFileEnv = "SAFEOPS_REGISTRY_TEST_TOOL_FILE"
+const launchFileEnv = "SAFEOPS_REGISTRY_TEST_LAUNCH_FILE"
 
 type emptyInput struct{}
 type statusOutput struct {
@@ -25,6 +26,11 @@ type statusOutput struct {
 
 func TestMain(m *testing.M) {
 	if os.Getenv(runServerEnv) == "1" {
+		if path := os.Getenv(launchFileEnv); path != "" {
+			if err := os.WriteFile(path, []byte("started"), 0o600); err != nil {
+				os.Exit(4)
+			}
+		}
 		if path := os.Getenv(dynamicToolFileEnv); path != "" {
 			b, err := os.ReadFile(path)
 			if err != nil {
@@ -73,13 +79,13 @@ func TestRegistryLifecycleAndToolListChange(t *testing.T) {
 	if len(first.Tools) != 1 || first.ToolSetHash == "" || first.ToolsChanged {
 		t.Fatalf("unexpected first discovery: %+v", first)
 	}
-	if first.ActualServerName != "dynamic-test" || first.ActualServerVersion != "1" || first.Tools[0].ServerVersion != "1" {
+	if first.ActualServerName != "dynamic-test" || first.ActualServerVersion != "1" || first.ProtocolVersion == "" || first.Tools[0].ServerVersion != "1" {
 		t.Fatalf("initialize server identity was not retained: %+v", first)
 	}
 	if !first.DependenciesChecked || !first.DependenciesHealthy || len(first.DependencyChecks) != 1 || !first.DependencyChecks[0].Available {
 		t.Fatalf("dependency state was not retained: %+v", first)
 	}
-	if len(first.DiscoveryHistory) != 1 || first.DiscoveryHistory[0].ServerVersion != "1" || len(first.HealthHistory) != 1 {
+	if len(first.DiscoveryHistory) != 1 || first.DiscoveryHistory[0].Status != registry.StatusHealthy || first.DiscoveryHistory[0].ServerVersion != "1" || first.DiscoveryHistory[0].ProtocolVersion == "" || len(first.HealthHistory) != 1 {
 		t.Fatalf("initial histories were not recorded: %+v", first)
 	}
 	if err := os.WriteFile(toolFile, []byte("two"), 0o600); err != nil {
@@ -128,33 +134,54 @@ func TestRegistryDependencyFailureAndRecovery(t *testing.T) {
 	root := t.TempDir()
 	toolFile := filepath.Join(root, "tools")
 	missing := filepath.Join(root, "dependency.ready")
+	launchFile := filepath.Join(root, "server.started")
 	if err := os.WriteFile(toolFile, []byte("one"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	cfg := registry.Config{Servers: []registry.ServerManifest{{
 		ID: "dynamic", Name: "dynamic", Version: "manifest-1", Transport: "stdio", Command: executable, Enabled: true,
-		Dependencies: []string{missing}, Environment: map[string]string{runServerEnv: "1", dynamicToolFileEnv: toolFile},
+		Dependencies: []string{missing}, Environment: map[string]string{runServerEnv: "1", dynamicToolFileEnv: toolFile, launchFileEnv: launchFile},
 	}}}
 	r := registry.New(cfg)
 	defer r.Close()
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
-	if err := r.Start(ctx); err != nil {
-		t.Fatal(err)
+	if err := r.Start(ctx); err == nil {
+		t.Fatal("missing dependency unexpectedly passed initial discovery")
 	}
 	failed := r.States()[0]
-	if failed.Status != registry.StatusUnhealthy || failed.DependenciesHealthy || len(failed.DependencyChecks) != 1 || failed.DependencyChecks[0].Available {
+	if failed.Status != registry.StatusUnhealthy || failed.DependenciesHealthy || len(failed.DependencyChecks) != 1 || failed.DependencyChecks[0].Available || len(failed.DiscoveryHistory) != 1 || failed.DiscoveryHistory[0].Status != registry.StatusUnhealthy {
 		t.Fatalf("missing dependency did not degrade state: %+v", failed)
+	}
+	if _, err := os.Stat(launchFile); !os.IsNotExist(err) {
+		t.Fatalf("MCP child ran before dependency preflight completed: %v", err)
 	}
 	if err := os.WriteFile(missing, []byte("ready"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if err := r.Health(ctx, "dynamic"); err != nil {
+	loopCtx, stop := context.WithCancel(context.Background())
+	done := make(chan error, 1)
+	go func() { done <- r.RunHealthLoop(loopCtx, 10*time.Millisecond, time.Second) }()
+	deadline := time.Now().Add(2 * time.Second)
+	for stateByID(t, r.States(), "dynamic").Status != registry.StatusHealthy {
+		if time.Now().After(deadline) {
+			t.Fatalf("periodic recovery did not reconnect: %+v", r.States()[0])
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	stop()
+	if err := <-done; err != nil {
 		t.Fatal(err)
 	}
 	recovered := r.States()[0]
-	if recovered.Status != registry.StatusHealthy || !recovered.DependenciesHealthy || len(recovered.HealthHistory) != 2 {
+	if recovered.Status != registry.StatusHealthy || !recovered.DependenciesHealthy || len(recovered.HealthHistory) < 2 || len(recovered.DiscoveryHistory) < 2 || recovered.DiscoveryHistory[len(recovered.DiscoveryHistory)-1].Status != registry.StatusHealthy || recovered.ActualServerVersion != "1" || recovered.ProtocolVersion == "" {
 		t.Fatalf("restored dependency did not recover state: %+v", recovered)
+	}
+	if _, err := os.Stat(launchFile); err != nil {
+		t.Fatalf("recovery did not launch MCP child: %v", err)
+	}
+	if _, err := r.CallTool(ctx, "dynamic", "test.one", map[string]any{}); err != nil {
+		t.Fatalf("recovered protocol session was not callable: %v", err)
 	}
 }
 

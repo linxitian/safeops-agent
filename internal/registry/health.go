@@ -28,6 +28,8 @@ func (r *Registry) CheckAll(ctx context.Context, perServerTimeout time.Duration)
 	if perServerTimeout <= 0 {
 		return errors.New("MCP per-server health timeout must be positive")
 	}
+	r.cycleMu.Lock()
+	defer r.cycleMu.Unlock()
 	r.mu.RLock()
 	ids := make([]string, 0, len(r.manifests))
 	for id, manifest := range r.manifests {
@@ -91,19 +93,25 @@ func inspectDependencies(values []string, now time.Time) ([]DependencyState, boo
 		switch {
 		case filepath.IsAbs(name):
 			check.Kind = "path"
-			if _, err := os.Stat(name); err != nil {
+			resolved := filepath.Clean(name)
+			if info, err := os.Stat(resolved); err != nil {
 				check.Error = boundedRegistryDetail(err.Error())
 			} else {
-				check.Available = true
-				check.Resolved = filepath.Clean(name)
+				setDependencyMetadata(&check, resolved, info)
 			}
 		case validDependencyCommand(name):
 			check.Kind = "command"
 			if resolved, err := exec.LookPath(name); err != nil {
 				check.Error = boundedRegistryDetail(err.Error())
 			} else {
-				check.Available = true
-				check.Resolved = resolved
+				absolute, absoluteErr := filepath.Abs(resolved)
+				if absoluteErr != nil {
+					check.Error = boundedRegistryDetail(absoluteErr.Error())
+				} else if info, statErr := os.Stat(absolute); statErr != nil {
+					check.Error = boundedRegistryDetail(statErr.Error())
+				} else {
+					setDependencyMetadata(&check, filepath.Clean(absolute), info)
+				}
 			}
 		default:
 			check.Kind = "invalid"
@@ -115,6 +123,15 @@ func inspectDependencies(values []string, now time.Time) ([]DependencyState, boo
 		checks = append(checks, check)
 	}
 	return checks, healthy
+}
+
+func setDependencyMetadata(check *DependencyState, resolved string, info os.FileInfo) {
+	check.Available = true
+	check.Resolved = resolved
+	check.Mode = info.Mode().String()
+	check.IsDir = info.IsDir()
+	check.SizeBytes = info.Size()
+	check.ModifiedAt = info.ModTime().UTC()
 }
 
 func validDependencyCommand(value string) bool {

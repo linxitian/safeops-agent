@@ -75,10 +75,10 @@ func main() {
 	reg := registry.New(cfg)
 	defer reg.Close()
 	startupCtx, cancel := context.WithTimeout(ctx, 15*time.Second)
-	err = reg.Start(startupCtx)
+	err = reg.CheckAll(startupCtx, *registryHealthTimeout)
 	cancel()
 	if err != nil {
-		log.Fatal(err)
+		log.Printf("initial MCP discovery incomplete; periodic recovery remains active: %v", err)
 	}
 	go func() {
 		if err := reg.RunHealthLoop(ctx, *registryHealthInterval, *registryHealthTimeout); err != nil && ctx.Err() == nil {

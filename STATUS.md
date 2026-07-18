@@ -35,7 +35,7 @@ Updated: 2026-07-18
 - Added process start-ticks identity, redacted commands, socket-inode/FD port ownership, `/proc/net` socket and interface reads.
 - Added fixed, allowlisted, output-bounded `systemctl`/`journalctl` calls with unit injection rejection and log truncation/redaction.
 - Added SafeFS allowlist, symlink-escape rejection, bounded metadata/directory/hash/large-file reads and configuration snapshot diff without returning file content.
-- Implemented YAML MCP Registry, protocol initialize/discovery, complete Tool/tool-set fingerprints, ping, runtime enable/disable, rediscovery and list-change detection.
+- Implemented YAML MCP Registry, protocol initialize/discovery, complete Tool/tool-set fingerprints, ping, runtime enable/disable, rediscovery and list-change detection; initialize identity/protocol, lookup-only dependency metadata, non-overlapping periodic checks and bounded failure/recovery histories are now projected through API and Web.
 - Implemented atomic Session/Task JSON persistence, bounded CPU/memory orchestrator, progress SSE, and Chinese React console.
 - Implemented versioned local Tool Policy, Static Guard, evidence-aware Intent Guard, deterministic contextual Risk and fail-closed Safety Pipeline.
 - Integrated Action Proposal + Static/Intent/Risk events into each MCP call; the two-tool slice now records 22 Trace events.
@@ -76,6 +76,7 @@ Updated: 2026-07-18
 | linux/loong64 all Go commands | PASS; 16 commands cross-built |
 | MCP in-memory initialize/list/call | PASS; 39 tools across eight domains |
 | MCP Registry lifecycle/list-change | PASS; enable, disable, rediscover and stable/change fingerprints |
+| MCP Registry automatic health/history | PASS on Ubuntu; official-SDK stdio healthy/failure/recovery, disabled skip, 32-record bounds, actual initialize version/protocol and API/UI projection; target run pending |
 | MCP Registry compiled stdio initialize/discovery/ping | PASS; 8 healthy Servers, 39 discovered Tools |
 | Official Kylin installed Registry native calls | PASS; unique call plan and structured results for 39/39 Tools as non-root `safeops` |
 | SafeFS boundary/hash/config snapshot | PASS; traversal/symlink escape and size bounds tested |
@@ -146,9 +147,9 @@ All named target workflows have `VALID` hash-chained Traces. The eight-view UI i
 
 - The target image lacks optional `git` and `go` commands. They are not release runtime dependencies, but their absence remains visible as bounded report warnings.
 - `make` is absent on the Ubuntu development host, but equivalent direct commands pass, so this does not block development.
-- Registry periodic health scheduling, dependency-state projection and version history remain engineering gaps; current lifecycle operations are explicit/API-driven.
+- Registry periodic health scheduling, dependency-state projection, actual initialize identity and bounded history are `TESTED` on Ubuntu; the exact candidate still needs installed official-Kylin evidence before this new scope is `TARGET_VERIFIED`.
 - M17's new model-proposed fixed-action and path-browser scope still needs an exact merged release run on the official Kylin VM before it can be called `TARGET_VERIFIED`.
 
 ## Human action required now
 
-The next engineering priority is a bounded periodic Registry health loop with dependency-state and version-history evidence. Provider credentials, official target reports, Collector/adapters, Web traversal, target Benchmark and data-preserving uninstall/reinstall are no longer blockers.
+The immediate task is the exact candidate release and official-Kylin verification of automatic Registry refresh, 8/8 dependency health, actual versions and the existing 39/39 target call report. After that, the remaining feature-level target gap is M17's guarded general-action/path-browser flow.

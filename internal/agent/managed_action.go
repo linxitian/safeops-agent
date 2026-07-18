@@ -21,8 +21,12 @@ var (
 	managedProcessSchema       = json.RawMessage(`{"type":"object","properties":{"pid":{"type":"integer","minimum":2,"maximum":4194304}},"required":["pid"],"additionalProperties":false}`)
 	processTargetPattern       = regexp.MustCompile(`^pid:([1-9][0-9]{0,9}):start:([0-9]{1,20})$`)
 	managedServiceNegative     = regexp.MustCompile(`(?:不要|别|不得|禁止|无需|不需|不应|不能|不可)(?:再|去|执行)?(?:重启|重新启动)|(?:do not|don't|dont|never|must not|should not|cannot|can't|without)(?:\s+\w+){0,3}\s+restart(?:ing)?\b|(?:no|avoid)\s+(?:service\s+)?restart(?:ing)?\b`)
-	managedServiceDirect       = regexp.MustCompile(`(?:^|[;,.]\s*|\b(?:please|then|and)\s+)restart\s+(?:the\s+)?[a-z0-9_.@-]+`)
+	managedServiceReadOnly     = regexp.MustCompile(`(?:如何|怎么|怎样)(?:安全地)?(?:重启|重新启动)|(?:重启|重新启动)(?:次数|计数|历史|记录|原因|影响|风险|步骤|方法|建议)|\bhow\s+to\s+restart\b|\brestart(?:ing|ed|s)?\s+(?:count|history|record|reason|impact|risk|steps?|procedure|recommendation|metrics?)\b`)
+	managedServiceChinese      = regexp.MustCompile(`(?:^|[，,;；。.!]\s*|(?:请|帮我|然后|之后|并|再|确认后|必要时|需要时|安全时|检查后))\s*(?:重启|重新启动)\s*[\p{Han}a-z0-9_.@-]`)
+	managedServiceEnglish      = regexp.MustCompile(`(?:^|[;,.]\s*|\b(?:please|then|and|also)\s+|\b(?:can|could|would|will)\s+you\s+|\bi\s+(?:want|need)\s+you\s+to\s+)restart\s+(?:the\s+)?[a-z0-9_.@-]+`)
 	managedProcessNegative     = regexp.MustCompile(`(?:不要|别|不得|禁止|无需|不需|不应|不能|不可)(?:再|去|执行)?(?:终止|结束|停止|杀掉|杀死|杀)(?:该|这个|目标)?进程|(?:do not|don't|dont|never|must not|should not|cannot|can't|without)(?:\s+\w+){0,3}\s+(?:terminate|kill|stop)(?:ing)?\b|(?:no|avoid)\s+(?:process\s+)?(?:termination|killing|stopping)\b`)
+	managedProcessChinese      = regexp.MustCompile(`(?:^|[，,;；。.!]\s*|(?:请|帮我|然后|之后|并|再|确认后|必要时|检查后))\s*(?:终止|结束|停止|杀掉|杀死)\s*(?:该|这个|目标)?进程`)
+	managedProcessEnglish      = regexp.MustCompile(`(?:^|[;,.]\s*|\b(?:please|then|and|also)\s+|\b(?:can|could|would|will)\s+you\s+|\bi\s+(?:want|need)\s+you\s+to\s+)(?:terminate|kill|stop)\s+(?:the\s+)?(?:process|pid\b|[a-z0-9_.@-]+\s+process\b)`)
 )
 
 func (o *Orchestrator) managedActionCapabilities() []llm.ManagedActionCapability {
@@ -237,15 +241,15 @@ func managedActionIntentAllows(request, tool string) bool {
 	}
 	switch tool {
 	case "service.restart":
-		if managedServiceNegative.MatchString(request) {
+		if managedServiceNegative.MatchString(request) || managedServiceReadOnly.MatchString(request) {
 			return false
 		}
-		return containsAny(request, "重启", "重新启动", "restart service", "restart the service", "service restart") || managedServiceDirect.MatchString(request)
+		return managedServiceChinese.MatchString(request) || managedServiceEnglish.MatchString(request)
 	case "process.terminate":
 		if managedProcessNegative.MatchString(request) {
 			return false
 		}
-		return containsAny(request, "终止进程", "结束进程", "停止进程", "杀掉进程", "terminate process", "terminate the process", "kill process", "kill the process", "stop process", "stop the process")
+		return managedProcessChinese.MatchString(request) || managedProcessEnglish.MatchString(request)
 	default:
 		return false
 	}

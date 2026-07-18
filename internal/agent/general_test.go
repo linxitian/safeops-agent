@@ -452,6 +452,11 @@ func TestManagedActionRequiresExplicitOperatorIntent(t *testing.T) {
 			t.Fatalf("direct English service restart request was rejected: %q", request)
 		}
 	}
+	for _, request := range []string{"check the service restart count", "查看服务重启历史", "how to restart nginx", "should I restart nginx?"} {
+		if managedActionIntentAllows(request, "service.restart") {
+			t.Fatalf("read-only service restart wording authorized an action: %q", request)
+		}
+	}
 	for _, request := range []string{
 		"不要重启 demo 服务，只检查状态",
 		"别再重新启动 demo 服务",
@@ -469,6 +474,16 @@ func TestManagedActionRequiresExplicitOperatorIntent(t *testing.T) {
 	}
 	if !managedActionIntentAllows("确认后终止进程", "process.terminate") {
 		t.Fatal("explicit process termination request was rejected")
+	}
+	for _, request := range []string{"terminate process 123", "please stop the process", "check it, then kill worker process"} {
+		if !managedActionIntentAllows(request, "process.terminate") {
+			t.Fatalf("direct English process action was rejected: %q", request)
+		}
+	}
+	for _, request := range []string{"explain how to kill process 123", "告诉我如何终止进程", "should I stop the process?"} {
+		if managedActionIntentAllows(request, "process.terminate") {
+			t.Fatalf("read-only process wording authorized an action: %q", request)
+		}
 	}
 	for _, request := range []string{
 		"不要终止进程，只查看",

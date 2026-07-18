@@ -61,7 +61,7 @@ func TestRegistryLifecycleAndToolListChange(t *testing.T) {
 	if err := os.WriteFile(toolFile, []byte("one"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	cfg := registry.Config{Servers: []registry.ServerManifest{{ID: "dynamic", Name: "dynamic", Version: "1", Transport: "stdio", Command: executable, Enabled: true, Environment: map[string]string{runServerEnv: "1", dynamicToolFileEnv: toolFile}}}}
+	cfg := registry.Config{Servers: []registry.ServerManifest{{ID: "dynamic", Name: "dynamic", Version: "manifest-1", Transport: "stdio", Command: executable, Enabled: true, Dependencies: []string{toolFile}, Environment: map[string]string{runServerEnv: "1", dynamicToolFileEnv: toolFile}}}}
 	r := registry.New(cfg)
 	defer r.Close()
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
@@ -72,6 +72,15 @@ func TestRegistryLifecycleAndToolListChange(t *testing.T) {
 	first := r.States()[0]
 	if len(first.Tools) != 1 || first.ToolSetHash == "" || first.ToolsChanged {
 		t.Fatalf("unexpected first discovery: %+v", first)
+	}
+	if first.ActualServerName != "dynamic-test" || first.ActualServerVersion != "1" || first.Tools[0].ServerVersion != "1" {
+		t.Fatalf("initialize server identity was not retained: %+v", first)
+	}
+	if !first.DependenciesChecked || !first.DependenciesHealthy || len(first.DependencyChecks) != 1 || !first.DependencyChecks[0].Available {
+		t.Fatalf("dependency state was not retained: %+v", first)
+	}
+	if len(first.DiscoveryHistory) != 1 || first.DiscoveryHistory[0].ServerVersion != "1" || len(first.HealthHistory) != 1 {
+		t.Fatalf("initial histories were not recorded: %+v", first)
 	}
 	if err := os.WriteFile(toolFile, []byte("two"), 0o600); err != nil {
 		t.Fatal(err)
@@ -88,6 +97,9 @@ func TestRegistryLifecycleAndToolListChange(t *testing.T) {
 	}
 	if r.States()[0].ToolsChanged {
 		t.Fatal("unchanged rediscovery reported a tool-list change")
+	}
+	if history := r.States()[0].DiscoveryHistory; len(history) != 3 || history[2].ServerVersion != "1" || history[2].ToolSetHash == "" {
+		t.Fatalf("rediscovery history was not retained: %+v", history)
 	}
 	if err := r.SetEnabled(ctx, "dynamic", false); err != nil {
 		t.Fatal(err)
@@ -106,6 +118,108 @@ func TestRegistryLifecycleAndToolListChange(t *testing.T) {
 	if enabled.Status != registry.StatusHealthy || !enabled.Manifest.Enabled || len(enabled.Tools) != 2 {
 		t.Fatalf("unexpected re-enabled state: %+v", enabled)
 	}
+}
+
+func TestRegistryDependencyFailureAndRecovery(t *testing.T) {
+	executable, err := os.Executable()
+	if err != nil {
+		t.Fatal(err)
+	}
+	root := t.TempDir()
+	toolFile := filepath.Join(root, "tools")
+	missing := filepath.Join(root, "dependency.ready")
+	if err := os.WriteFile(toolFile, []byte("one"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	cfg := registry.Config{Servers: []registry.ServerManifest{{
+		ID: "dynamic", Name: "dynamic", Version: "manifest-1", Transport: "stdio", Command: executable, Enabled: true,
+		Dependencies: []string{missing}, Environment: map[string]string{runServerEnv: "1", dynamicToolFileEnv: toolFile},
+	}}}
+	r := registry.New(cfg)
+	defer r.Close()
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	if err := r.Start(ctx); err != nil {
+		t.Fatal(err)
+	}
+	failed := r.States()[0]
+	if failed.Status != registry.StatusUnhealthy || failed.DependenciesHealthy || len(failed.DependencyChecks) != 1 || failed.DependencyChecks[0].Available {
+		t.Fatalf("missing dependency did not degrade state: %+v", failed)
+	}
+	if err := os.WriteFile(missing, []byte("ready"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := r.Health(ctx, "dynamic"); err != nil {
+		t.Fatal(err)
+	}
+	recovered := r.States()[0]
+	if recovered.Status != registry.StatusHealthy || !recovered.DependenciesHealthy || len(recovered.HealthHistory) != 2 {
+		t.Fatalf("restored dependency did not recover state: %+v", recovered)
+	}
+}
+
+func TestRegistryPeriodicHealthSkipsDisabledAndBoundsHistory(t *testing.T) {
+	executable, err := os.Executable()
+	if err != nil {
+		t.Fatal(err)
+	}
+	toolFile := filepath.Join(t.TempDir(), "tools")
+	if err := os.WriteFile(toolFile, []byte("one"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	cfg := registry.Config{Servers: []registry.ServerManifest{
+		{ID: "dynamic", Name: "dynamic", Version: "1", Transport: "stdio", Command: executable, Enabled: true, Environment: map[string]string{runServerEnv: "1", dynamicToolFileEnv: toolFile}},
+		{ID: "disabled", Name: "disabled", Version: "1", Transport: "stdio", Command: executable, Enabled: false},
+	}}
+	r := registry.New(cfg)
+	defer r.Close()
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	if err := r.Start(ctx); err != nil {
+		t.Fatal(err)
+	}
+	initial := stateByID(t, r.States(), "dynamic")
+	loopCtx, stop := context.WithCancel(context.Background())
+	done := make(chan error, 1)
+	go func() { done <- r.RunHealthLoop(loopCtx, 10*time.Millisecond, time.Second) }()
+	deadline := time.Now().Add(2 * time.Second)
+	for {
+		current := stateByID(t, r.States(), "dynamic")
+		if current.LastChecked.After(initial.LastChecked) && len(current.HealthHistory) >= 2 {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("periodic health did not advance state: %+v", current)
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	stop()
+	if err := <-done; err != nil {
+		t.Fatal(err)
+	}
+	disabled := stateByID(t, r.States(), "disabled")
+	if disabled.Status != registry.StatusDisabled || !disabled.LastChecked.IsZero() || len(disabled.HealthHistory) != 0 {
+		t.Fatalf("disabled server was checked: %+v", disabled)
+	}
+	for index := 0; index < 40; index++ {
+		if err := r.Health(ctx, "dynamic"); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if history := stateByID(t, r.States(), "dynamic").HealthHistory; len(history) != 32 {
+		t.Fatalf("health history length=%d, want 32", len(history))
+	}
+}
+
+func stateByID(t *testing.T, states []registry.ServerState, id string) registry.ServerState {
+	t.Helper()
+	for _, state := range states {
+		if state.Manifest.ID == id {
+			return state
+		}
+	}
+	t.Fatalf("state %s not found", id)
+	return registry.ServerState{}
 }
 
 func TestRegistryDiscoversAndCallsStdioMCP(t *testing.T) {

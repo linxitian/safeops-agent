@@ -78,13 +78,46 @@ type ToolRecord struct {
 	ServerVersion string          `json:"server_version"`
 }
 
+type DependencyState struct {
+	Name      string    `json:"name"`
+	Kind      string    `json:"kind"`
+	Available bool      `json:"available"`
+	Resolved  string    `json:"resolved,omitempty"`
+	Error     string    `json:"error,omitempty"`
+	CheckedAt time.Time `json:"checked_at"`
+}
+
+type HealthRecord struct {
+	CheckedAt           time.Time `json:"checked_at"`
+	Status              Status    `json:"status"`
+	Error               string    `json:"error,omitempty"`
+	DependenciesHealthy bool      `json:"dependencies_healthy"`
+	DurationMillis      int64     `json:"duration_millis"`
+}
+
+type DiscoveryRecord struct {
+	DiscoveredAt  time.Time `json:"discovered_at"`
+	ServerName    string    `json:"server_name"`
+	ServerVersion string    `json:"server_version"`
+	ToolSetHash   string    `json:"tool_set_hash"`
+	ToolCount     int       `json:"tool_count"`
+	ToolsChanged  bool      `json:"tools_changed"`
+}
+
 type ServerState struct {
-	Manifest            ServerManifest `json:"manifest"`
-	Status              Status         `json:"status"`
-	Error               string         `json:"error,omitempty"`
-	Tools               []ToolRecord   `json:"tools"`
-	ToolSetHash         string         `json:"tool_set_hash,omitempty"`
-	PreviousToolSetHash string         `json:"previous_tool_set_hash,omitempty"`
-	ToolsChanged        bool           `json:"tools_changed"`
-	LastChecked         time.Time      `json:"last_checked"`
+	Manifest            ServerManifest    `json:"manifest"`
+	Status              Status            `json:"status"`
+	Error               string            `json:"error,omitempty"`
+	ActualServerName    string            `json:"actual_server_name,omitempty"`
+	ActualServerVersion string            `json:"actual_server_version,omitempty"`
+	Tools               []ToolRecord      `json:"tools"`
+	ToolSetHash         string            `json:"tool_set_hash,omitempty"`
+	PreviousToolSetHash string            `json:"previous_tool_set_hash,omitempty"`
+	ToolsChanged        bool              `json:"tools_changed"`
+	DependenciesChecked bool              `json:"dependencies_checked"`
+	DependenciesHealthy bool              `json:"dependencies_healthy"`
+	DependencyChecks    []DependencyState `json:"dependency_checks"`
+	HealthHistory       []HealthRecord    `json:"health_history"`
+	DiscoveryHistory    []DiscoveryRecord `json:"discovery_history"`
+	LastChecked         time.Time         `json:"last_checked"`
 }

@@ -51,9 +51,16 @@ const servers = {
   servers: [{
     manifest: { id: 'system', display_name: '系统感知', version: '0.1.0', description: '真实系统状态', enabled: true, capabilities: ['system'] },
     status: 'HEALTHY',
+    actual_server_name: 'safeops-mcp-system',
+    actual_server_version: '0.1.1',
     tools: [{ name: 'system.get_overview', description: '读取系统概览', schema_hash: 'c'.repeat(64) }],
     tool_set_hash: 'd'.repeat(64),
     tools_changed: false,
+    dependencies_checked: true,
+    dependencies_healthy: true,
+    dependency_checks: [{ name: '/proc', kind: 'path', available: true, resolved: '/proc', checked_at: '2026-07-16T01:02:05Z' }],
+    health_history: [{ checked_at: '2026-07-16T01:02:05Z', status: 'HEALTHY', dependencies_healthy: true, duration_millis: 1 }],
+    discovery_history: [{ discovered_at: '2026-07-16T01:02:05Z', server_name: 'safeops-mcp-system', server_version: '0.1.1', tool_set_hash: 'd'.repeat(64), tool_count: 1, tools_changed: false }],
     last_checked: '2026-07-16T01:02:05Z',
   }],
 }
@@ -204,6 +211,9 @@ describe('SafeOps Chinese operational UI', () => {
     await user.click(screen.getByRole('button', { name: '工具中心' }))
     await screen.findByRole('heading', { name: 'MCP 插件与工具' })
     expect(screen.getByText('system.get_overview')).toBeTruthy()
+    expect(screen.getByRole('heading', { name: 'system · v0.1.1' })).toBeTruthy()
+    await user.click(screen.getByText('依赖与发现历史'))
+    expect(screen.getByText('/proc')).toBeTruthy()
 
     await user.click(screen.getByRole('button', { name: '安全中心' }))
     await screen.findByRole('heading', { name: '本地安全决策面' })

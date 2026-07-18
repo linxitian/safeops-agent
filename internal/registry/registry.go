@@ -57,6 +57,7 @@ func (r *Registry) Start(ctx context.Context) error {
 }
 
 func (r *Registry) Discover(ctx context.Context, id string) error {
+	started := time.Now()
 	r.lifecycleMu.Lock()
 	defer r.lifecycleMu.Unlock()
 	r.mu.Lock()
@@ -95,29 +96,60 @@ func (r *Registry) Discover(ctx context.Context, id string) error {
 		r.recordFailure(id, err)
 		return fmt.Errorf("connect MCP server %s: %w", id, err)
 	}
-	tools, err := listTools(ctx, session, id, m.Version)
+	serverName, serverVersion := m.Name, m.Version
+	if initialized := session.InitializeResult(); initialized != nil && initialized.ServerInfo != nil {
+		serverName = firstNonEmptyRegistry(initialized.ServerInfo.Name, serverName)
+		serverVersion = firstNonEmptyRegistry(initialized.ServerInfo.Version, serverVersion)
+	}
+	tools, err := listTools(ctx, session, id, serverVersion)
 	if err != nil {
 		_ = session.Close()
 		r.recordFailure(id, err)
 		return fmt.Errorf("discover MCP server %s: %w", id, err)
 	}
-	r.mu.Lock()
-	r.clients[id] = client
-	r.sessions[id] = session
-	state = r.states[id]
 	newHash, err := toolSetHash(tools)
 	if err != nil {
-		r.mu.Unlock()
 		_ = session.Close()
 		r.recordFailure(id, err)
 		return fmt.Errorf("fingerprint MCP server %s tool set: %w", id, err)
 	}
+	now := time.Now().UTC()
+	dependencyChecks, dependenciesHealthy := inspectDependencies(m.Dependencies, now)
+	r.mu.Lock()
+	r.clients[id] = client
+	r.sessions[id] = session
+	state = r.states[id]
 	state.PreviousToolSetHash = state.ToolSetHash
 	state.ToolsChanged = state.ToolSetHash != "" && state.ToolSetHash != newHash
 	state.ToolSetHash = newHash
+	state.ActualServerName = serverName
+	state.ActualServerVersion = serverVersion
+	state.DependenciesChecked = true
+	state.DependenciesHealthy = dependenciesHealthy
+	state.DependencyChecks = dependencyChecks
 	state.Status = StatusHealthy
+	state.Error = ""
+	if dependencyErr := dependencyFailure(dependencyChecks); dependencyErr != nil {
+		state.Status = StatusUnhealthy
+		state.Error = boundedRegistryDetail(dependencyErr.Error())
+	}
 	state.Tools = tools
-	state.LastChecked = time.Now().UTC()
+	state.LastChecked = now
+	state.DiscoveryHistory = appendBounded(state.DiscoveryHistory, DiscoveryRecord{
+		DiscoveredAt:  now,
+		ServerName:    serverName,
+		ServerVersion: serverVersion,
+		ToolSetHash:   newHash,
+		ToolCount:     len(tools),
+		ToolsChanged:  state.ToolsChanged,
+	})
+	state.HealthHistory = appendBounded(state.HealthHistory, HealthRecord{
+		CheckedAt:           now,
+		Status:              state.Status,
+		Error:               state.Error,
+		DependenciesHealthy: dependenciesHealthy,
+		DurationMillis:      time.Since(started).Milliseconds(),
+	})
 	r.states[id] = state
 	r.mu.Unlock()
 	return nil
@@ -174,6 +206,7 @@ func (r *Registry) SetEnabled(ctx context.Context, id string, enabled bool) erro
 	state.PreviousToolSetHash = state.ToolSetHash
 	state.ToolsChanged = false
 	state.LastChecked = time.Now().UTC()
+	state.HealthHistory = appendBounded(state.HealthHistory, HealthRecord{CheckedAt: state.LastChecked, Status: StatusDisabled, DependenciesHealthy: state.DependenciesHealthy})
 	r.states[id] = state
 	r.mu.Unlock()
 	if session != nil {
@@ -233,12 +266,21 @@ func (r *Registry) AvailableTools() []llm.ToolCapability {
 }
 
 func (r *Registry) recordFailure(id string, err error) {
+	r.mu.RLock()
+	state := r.states[id]
+	r.mu.RUnlock()
+	now := time.Now().UTC()
+	checks, dependenciesHealthy := inspectDependencies(state.Manifest.Dependencies, now)
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	state := r.states[id]
+	state = r.states[id]
 	state.Status = StatusUnhealthy
-	state.Error = err.Error()
-	state.LastChecked = time.Now().UTC()
+	state.Error = boundedRegistryDetail(err.Error())
+	state.DependenciesChecked = true
+	state.DependenciesHealthy = dependenciesHealthy
+	state.DependencyChecks = checks
+	state.LastChecked = now
+	state.HealthHistory = appendBounded(state.HealthHistory, HealthRecord{CheckedAt: now, Status: StatusUnhealthy, Error: state.Error, DependenciesHealthy: dependenciesHealthy})
 	r.states[id] = state
 }
 
@@ -264,24 +306,63 @@ func (r *Registry) CallTool(ctx context.Context, serverID, name string, argument
 }
 
 func (r *Registry) Health(ctx context.Context, id string) error {
+	started := time.Now()
+	r.lifecycleMu.Lock()
+	defer r.lifecycleMu.Unlock()
 	r.mu.RLock()
+	manifest, ok := r.manifests[id]
 	session := r.sessions[id]
 	r.mu.RUnlock()
-	if session == nil {
-		return fmt.Errorf("MCP server %s is not connected", id)
+	if !ok {
+		return fmt.Errorf("unknown MCP server %q", id)
 	}
-	if err := session.Ping(ctx, nil); err != nil {
+	if !manifest.Enabled {
+		return fmt.Errorf("MCP server %s is disabled", id)
+	}
+	if session == nil {
+		err := fmt.Errorf("MCP server %s is not connected", id)
 		r.recordFailure(id, err)
 		return err
 	}
+	if err := session.Ping(ctx, nil); err != nil {
+		if errors.Is(ctx.Err(), context.Canceled) {
+			return context.Canceled
+		}
+		_ = session.Close()
+		r.mu.Lock()
+		if r.sessions[id] == session {
+			delete(r.sessions, id)
+			delete(r.clients, id)
+		}
+		r.mu.Unlock()
+		r.recordFailure(id, err)
+		return err
+	}
+	now := time.Now().UTC()
+	dependencyChecks, dependenciesHealthy := inspectDependencies(manifest.Dependencies, now)
+	dependencyErr := dependencyFailure(dependencyChecks)
 	r.mu.Lock()
 	state := r.states[id]
 	state.Status = StatusHealthy
 	state.Error = ""
-	state.LastChecked = time.Now().UTC()
+	if dependencyErr != nil {
+		state.Status = StatusUnhealthy
+		state.Error = boundedRegistryDetail(dependencyErr.Error())
+	}
+	state.DependenciesChecked = true
+	state.DependenciesHealthy = dependenciesHealthy
+	state.DependencyChecks = dependencyChecks
+	state.LastChecked = now
+	state.HealthHistory = appendBounded(state.HealthHistory, HealthRecord{
+		CheckedAt:           now,
+		Status:              state.Status,
+		Error:               state.Error,
+		DependenciesHealthy: dependenciesHealthy,
+		DurationMillis:      time.Since(started).Milliseconds(),
+	})
 	r.states[id] = state
 	r.mu.Unlock()
-	return nil
+	return dependencyErr
 }
 
 func (r *Registry) States() []ServerState {
@@ -289,6 +370,13 @@ func (r *Registry) States() []ServerState {
 	defer r.mu.RUnlock()
 	out := make([]ServerState, 0, len(r.states))
 	for _, state := range r.states {
+		state.Manifest.Arguments = append([]string(nil), state.Manifest.Arguments...)
+		state.Manifest.Capabilities = append([]string(nil), state.Manifest.Capabilities...)
+		state.Manifest.Dependencies = append([]string(nil), state.Manifest.Dependencies...)
+		state.Tools = append([]ToolRecord(nil), state.Tools...)
+		state.DependencyChecks = append([]DependencyState(nil), state.DependencyChecks...)
+		state.HealthHistory = append([]HealthRecord(nil), state.HealthHistory...)
+		state.DiscoveryHistory = append([]DiscoveryRecord(nil), state.DiscoveryHistory...)
 		out = append(out, state)
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].Manifest.ID < out[j].Manifest.ID })

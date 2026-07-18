@@ -22,9 +22,16 @@ const baseServers = {
   servers: [{
     manifest: { id: 'system', display_name: '系统感知', version: '0.1.0', description: '真实系统状态', enabled: true, capabilities: ['system', 'read_only'] },
     status: 'HEALTHY',
+    actual_server_name: 'safeops-mcp-system',
+    actual_server_version: '0.1.0',
     tools: [{ name: 'system.get_cpu_metrics', description: '读取 CPU', schema_hash: 'c'.repeat(64) }],
     tool_set_hash: 'd'.repeat(64),
     tools_changed: false,
+    dependencies_checked: true,
+    dependencies_healthy: true,
+    dependency_checks: [{ name: '/proc', kind: 'path', available: true, resolved: '/proc', checked_at: '2026-07-16T01:02:05Z' }],
+    health_history: [{ checked_at: '2026-07-16T01:02:05Z', status: 'HEALTHY', dependencies_healthy: true, duration_millis: 1 }],
+    discovery_history: [{ discovered_at: '2026-07-16T01:02:05Z', server_name: 'safeops-mcp-system', server_version: '0.1.0', tool_set_hash: 'd'.repeat(64), tool_count: 1, tools_changed: false }],
     last_checked: '2026-07-16T01:02:05Z',
   }],
 }

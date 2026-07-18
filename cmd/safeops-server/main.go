@@ -30,6 +30,8 @@ func main() {
 	listen := flag.String("listen", "127.0.0.1:8080", "HTTP listen address")
 	dataDir := flag.String("data", "./data", "persistent data directory")
 	registryConfig := flag.String("mcp-config", "./config/mcp_servers.yaml", "MCP server manifest file")
+	registryHealthInterval := flag.Duration("mcp-health-interval", 30*time.Second, "periodic MCP health interval")
+	registryHealthTimeout := flag.Duration("mcp-health-timeout", 3*time.Second, "per-server MCP health timeout")
 	policyConfig := flag.String("policy", "./policies/tools.yaml", "local Tool security policy file")
 	executorSocket := flag.String("executor-socket", "/run/safeops/privexec.sock", "privileged executor Unix socket")
 	executorConfig := flag.String("executor-config", "./config/executor.yaml", "executor allowlist config used to snapshot action targets")
@@ -44,6 +46,12 @@ func main() {
 	}
 	if *maxConcurrentTasks <= 0 || *maxSessions <= 0 || *maxTasks <= 0 {
 		log.Fatal("runtime limits must be positive")
+	}
+	if *registryHealthInterval < time.Second {
+		log.Fatal("mcp-health-interval must be at least 1s")
+	}
+	if *registryHealthTimeout < 100*time.Millisecond || *registryHealthTimeout > *registryHealthInterval {
+		log.Fatal("mcp-health-timeout must be between 100ms and mcp-health-interval")
 	}
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
@@ -72,6 +80,11 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
+	go func() {
+		if err := reg.RunHealthLoop(ctx, *registryHealthInterval, *registryHealthTimeout); err != nil && ctx.Err() == nil {
+			log.Printf("MCP health loop stopped: %v", err)
+		}
+	}()
 	catalog, err := guard.LoadCatalog(*policyConfig)
 	if err != nil {
 		log.Fatal(err)

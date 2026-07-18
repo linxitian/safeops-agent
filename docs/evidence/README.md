@@ -45,3 +45,13 @@ recorded in the manifest. The candidate identifies the exact externally
 archived runtime; the squash-merge commit identifies the resulting source on
 `main`. Future target runs should prefer an exact merge commit or signed tag so
 the installed and default-branch identities are the same.
+
+## PR #57 real-agent reliability follow-up
+
+Candidate `384f06c` from PR #57 was built for both supported Linux
+architectures and installed on the official Kylin V11/LoongArch64 target.
+DeepSeek V4 Flash task `task_29ebd42581d2dda9a4670aca` completed the real
+`/var/log` diagnosis in 21.1 seconds with two scoped MCP calls, two exact
+evidence citations and a `VALID` Trace. The release archive SHA-256 was
+`8ee24f8fbfc360faa090b870eabe9891112cdce56f66ce1028f880218cec029a`.
+No Provider key is stored in this index or the restricted task evidence.

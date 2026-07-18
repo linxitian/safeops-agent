@@ -10,7 +10,7 @@ Updated: 2026-07-18
 | M1 Platform/collectors | TARGET_VERIFIED | Installed non-root target run executed all seven normalized Collectors plus Prometheus/OpenTelemetry adapter models with bounded count-only evidence; 7/7 completed without issue or truncation |
 | M2 MCP registry/tools | TARGET_VERIFIED | Official Kylin V11/loong64: installed non-root Registry initialized/pinged 8/8 servers and completed one bounded structured call for each of 39/39 tools |
 | M3 First vertical slice | TESTED | Ubuntu: live HTTP/SSE run, real MCP `/proc` results, 22-event valid Trace, restart recovery |
-| M4 General Agent Runtime | TARGET_VERIFIED | Credentialed compatible-provider runs on official Kylin completed real MCP reads; merged release `1a10880` preserved bounded durable follow-up scope and enforced the two-minute Agent deadline |
+| M4 General Agent Runtime | TARGET_VERIFIED | Credentialed compatible-provider runs on official Kylin completed real MCP reads; candidate `384f06c` with DeepSeek V4 Flash completed scoped `/var/log` diagnosis in 21.1 seconds with correct numeric evidence and a `VALID` Trace |
 | M5 Guards/risk | TARGET_VERIFIED | Official target injection negative made no tool/approval/execution call; target write flows passed local policy, exact-target risk and independent approvals |
 | M6 Executor/approval/rollback | TARGET_VERIFIED | Official target completed fixed process/service/file handlers through the Unix socket, including exact-bound approvals and verified quarantine/restore |
 | M7 Evidence/RAG/RCA | TARGET_VERIFIED | Official target port workflow completed D1 correlation and BM25 retrieval with real service/log/socket/process evidence; CPU/disk diagnostic flows also completed |
@@ -93,10 +93,10 @@ Updated: 2026-07-18
 | `safeops-bench all` | TARGET_VERIFIED; six suites and 16 measured metrics pass on official Kylin V11/loong64 as non-root `safeops`; report stores exact sample counts and methods |
 | Final target report checksums | PASS; original probe/test/doctor, full-call `target_ae6d4bbeb9ae7b8e5764`, exact-merge `target_7a42c5e387e7abeea4f8`, Collector follow-up `target_df68d477155fd8d55d75` and exact PR #30 merge regression `target_4a368ebd750533d7ddb6` independently checksum-verified |
 | Official Kylin V11 native checks | PASS with bounded WARN; loong64/Kylin/glibc/systemd/proc/statfs, 8/8 MCP, 39/39 native Tool calls, 7/7 Collectors and both adapter models pass; only optional `git`/`go` commands absent |
-| Credentialed compatible-provider runs | PASS; real MCP evidence, final three-resource follow-up scope and provider-deadline failure persistence verified |
+| Credentialed compatible-provider runs | TARGET_VERIFIED; DeepSeek V4 Flash target task `task_29ebd42581d2dda9a4670aca` completed in 21.1 seconds with two scoped reads, two exact evidence citations and a `VALID` Trace |
 | Structured-decision recovery | TESTED; strict decoding remains authoritative, one malformed-response correction is bounded to a single retry, repeated invalid output fails, and provider/HTTP failures are not retried |
 | Deadline-aware finalization | TESTED; no final-only mode is entered before evidence, the reserved final request retains observations but exposes no tools/actions, and non-final output fails closed |
-| Evidence-cited operational conclusions | TESTED; uncited finals receive one bounded correction, repeated uncited output fails, and prompts prohibit unsupported byte-unit, disk-pressure and large-contributor claims |
+| Evidence-cited operational conclusions | TARGET_VERIFIED; the final Kylin task reported 13.86% use, made no disk-pressure/MB-to-GB overclaim, disclosed the permission-limited large-file read and cited both exact Trace references; repair negatives remain unit-tested |
 | Installed port/CPU/disk/file workflows | PASS; 10/10, 7/7, 8/8 and final four-turn quarantine/restore flows completed with `VALID` Traces |
 | M16 release pipeline | PASS locally; tests/vet/frontend plus 16 amd64 and 16 loong64 commands, fixed tar.gz and outer SHA256 produced |
 | Release artifact verification | PASS; outer hash, 39 bundle-file hashes, 16 static LoongArch ELF files and six staged systemd units verified |

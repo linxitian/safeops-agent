@@ -1,6 +1,6 @@
 {
   "schema_version": 2,
-  "audit_date": "2026-07-18",
+  "audit_date": "2026-07-19",
   "evidence_availability": "maintainer_external_archive_not_tracked_in_git",
   "repository": "https://github.com/linxitian/safeops-agent.git",
   "runs": [
@@ -78,6 +78,28 @@
         "structured_tool_calls": "39/39"
       },
       "claim_boundary": "native runtime regression only; does not promote M17 guarded LLM actions/path governance"
+    },
+    {
+      "scope": "pr_57_real_agent_decision_reliability",
+      "candidate_commit": "384f06c212750da3732ee2be1a77c5374825d18f",
+      "candidate_commit_reachable_from_default_branch": false,
+      "pull_request": 57,
+      "pull_ref": "refs/pull/57/head",
+      "release_sha256": "8ee24f8fbfc360faa090b870eabe9891112cdce56f66ce1028f880218cec029a",
+      "provider": {
+        "base_url": "https://api.deepseek.com",
+        "model": "deepseek-v4-flash"
+      },
+      "task_ids": ["task_29ebd42581d2dda9a4670aca"],
+      "runtime_checks": {
+        "result": "COMPLETED",
+        "elapsed_seconds": 21.1,
+        "scoped_tool_calls": 2,
+        "evidence_citations": 2,
+        "trace_integrity": "VALID",
+        "mcp_servers": "8/8"
+      },
+      "claim_boundary": "target verifies the final cited numeric conclusion and Provider compatibility; malformed-response repair and reserved final-only recovery remain deterministic TESTED evidence"
     }
   ]
 }

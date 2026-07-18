@@ -1,6 +1,6 @@
 # Kylin V11 LoongArch64 Target Verification Audit
 
-Audit date: 2026-07-18. Maintainer verdict: the evidence below is sufficient to promote only the named capabilities to `TARGET_VERIFIED`.
+Audit date: 2026-07-18, with a real-agent reliability follow-up on 2026-07-19. Maintainer verdict: the evidence below is sufficient to promote only the named capabilities to `TARGET_VERIFIED`.
 
 Evidence identities, candidate-to-merge mappings, checksums, and the boundary
 between Git-tracked material and the maintainers' restricted raw archive are
@@ -114,6 +114,40 @@ Merge commit `666df77385ece217c2fec2eca48a1007762b6d04` was built after PR #30 w
 Native report `target_4a368ebd750533d7ddb6` then completed 7/7 Collectors with 200 observations, both adapter models, 8/8 MCP servers, and 39/39 structured Tool calls. Its JSON and text SHA-256 values were `7469aac4b1bc6ff788b5699008122b20ecc873aa1a2ecdab1f2e1a0186048a67` and `e21bbb10bcca77ac0d9d009542f334b6f54ba508263498e6b3995cc748909162`. The result remained `WARN` only for optional target `git`/`go` absence and retained `target_verified=false`.
 
 This is exact-merge native runtime regression evidence for the named Collector, adapter, Registry, and MCP-call checks. It does not exercise the positive/negative M17 guarded-LLM action flows and therefore does not promote M17 beyond `TESTED`. Later merges #34, #36, #38, and #40 require their own exact-merge target release if a new target-compatibility claim is needed.
+
+## PR #57 real-agent reliability follow-up
+
+Candidate `384f06c212750da3732ee2be1a77c5374825d18f` passed `go test ./...`,
+`go vet ./...`, the installer environment regression, 19 frontend tests,
+frontend lint/build, and all 16 commands for both linux/amd64 and
+linux/loong64 with `CGO_ENABLED=0`. Its LoongArch64 release archive SHA-256
+was `8ee24f8fbfc360faa090b870eabe9891112cdce56f66ce1028f880218cec029a`.
+The checksum-verified bundle was installed on the official Kylin target;
+`/opt/safeops/VERSION` reported `384f06c`, both core services were active,
+8/8 MCP servers were `HEALTHY`, and all four fault-generator Lab units
+remained inactive.
+
+The operator changed the persisted OpenAI-compatible Provider to
+`https://api.deepseek.com` with model `deepseek-v4-flash`; the secret value
+was neither read back nor recorded. Target task
+`task_29ebd42581d2dda9a4670aca` then handled `修复 /var/log 磁盘占用问题`
+in 21.1 seconds and completed after exactly two scoped MCP calls:
+`system.get_disk_usage` and `file.find_large`, both on `/var/log`. Its final
+answer correctly reported 13.86% filesystem use, concluded that no disk
+pressure required repair, disclosed that recursive large-file discovery was
+permission-limited, and cited both exact evidence references. The exported
+Trace was `VALID`.
+
+This run followed three evidence-producing failures that shaped PR #57:
+`task_6987e27baae5b9b0a770f433` failed on the misspelled field
+`expected_observaton`; `task_363660771fa02836af64cc6e` gathered six scoped
+observations but exhausted the durable deadline before summarizing; and
+`task_f363c774eb6ddb15d4c1d3a5` completed but mislabeled roughly 6 MiB files
+as gigabytes and omitted citations. The final target task verifies the
+evidence-cited, numerically bounded operational conclusion and Provider
+compatibility. The exact malformed-response retry and reserved final-only
+branch remain `TESTED` by deterministic provider/runtime tests because the
+successful final target task did not need to enter those recovery branches.
 
 ## Status decisions and remaining gaps
 

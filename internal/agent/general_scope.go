@@ -75,15 +75,16 @@ func requestPathScopes(request string) ([]string, []string) {
 
 func readScopeMentionNegated(request string, mentionStart int) bool {
 	prefix := strings.ToLower(request[:mentionStart])
-	if separator := strings.LastIndexAny(prefix, ",.!?:，。；;！？：\n"); separator >= 0 {
+	if separator := strings.LastIndexAny(prefix, ",.!?，。；;！？\n"); separator >= 0 {
 		prefix = prefix[separator+1:]
 	}
 	positiveClauseEnd := -1
 	positiveMarkers := []string{
 		" and read ", " and inspect ", " and check ", " and access ", " and do read ", " and do inspect ", " and do check ", " and do access ",
 		" but read ", " but inspect ", " but check ", " but access ", " but instead read ", " but instead inspect ", " but instead check ", " but instead access ",
+		": read ", ": inspect ", ": check ", ": access ",
 	}
-	for _, connector := range []string{"并", "再", "然后", "但", "但是", "只", "改为", "而是"} {
+	for _, connector := range []string{"并", "再", "然后", "但", "但是", "只", "改为", "而是", "：", "： "} {
 		for _, verb := range []string{"看", "查", "检查", "读取", "访问"} {
 			positiveMarkers = append(positiveMarkers, connector+verb)
 		}
@@ -219,7 +220,7 @@ func validateGeneralReadScope(scope *generalReadScope, decision llm.Decision) *r
 	}
 	path = filepath.Clean(path)
 	for _, excluded := range scope.ExcludedPaths {
-		if pathWithinScope(excluded, path) || pathWithinScope(path, excluded) {
+		if pathWithinScope(excluded, path) || (fileScopedReadToolTraverses(tool) && pathWithinScope(path, excluded)) {
 			return &readScopeViolation{
 				Code:          "REQUEST_READ_SCOPE_EXCLUDED",
 				Summary:       "工具 path 位于操作员明确排除的路径内，或会遍历到该排除路径",
@@ -239,6 +240,10 @@ func validateGeneralReadScope(scope *generalReadScope, decision llm.Decision) *r
 		Tool:          tool,
 		AttemptedPath: path,
 	}
+}
+
+func fileScopedReadToolTraverses(tool string) bool {
+	return tool == "file/file.list_directory" || tool == "file/file.find_large"
 }
 
 func fileScopedReadTool(tool string) bool {

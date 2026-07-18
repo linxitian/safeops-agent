@@ -47,7 +47,7 @@ func TestDeriveGeneralReadScopeFromRequestAndSelectedResources(t *testing.T) {
 	if len(englishClauses) != 1 || englishClauses[0] != "/var/log" {
 		t.Fatalf("ASCII punctuation did not isolate a positive path clause: %+v", englishClauses)
 	}
-	for _, conjunction := range []string{"don't read /etc and read /var/log", "不要查 /etc 并检查 /var/log", "不要检查 /etc 只检查 /var/log"} {
+	for _, conjunction := range []string{"don't read /etc and read /var/log", "不要查 /etc 并检查 /var/log", "不要检查 /etc 只检查 /var/log", "不要查 /etc： 检查 /var/log"} {
 		paths := requestScopePaths(conjunction)
 		if len(paths) != 1 || paths[0] != "/var/log" {
 			t.Fatalf("a positive conjunction clause remained negated for %q: %+v", conjunction, paths)
@@ -71,6 +71,10 @@ func TestDeriveGeneralReadScopeFromRequestAndSelectedResources(t *testing.T) {
 	if violation := validateGeneralReadScope(excluded, parentScan); violation == nil || violation.Code != "REQUEST_READ_SCOPE_EXCLUDED" {
 		t.Fatalf("a parent scan could traverse an excluded subtree: %+v", violation)
 	}
+	parentStat := llm.Decision{Kind: llm.DecisionTool, ServerID: "file", Tool: "file.stat", Arguments: map[string]any{"path": "/var/log"}}
+	if violation := validateGeneralReadScope(excluded, parentStat); violation != nil {
+		t.Fatalf("exact metadata for an authorized parent was rejected: %+v", violation)
+	}
 	allowedFile := llm.Decision{Kind: llm.DecisionTool, ServerID: "file", Tool: "file.stat", Arguments: map[string]any{"path": "/var/log/messages"}}
 	if violation := validateGeneralReadScope(excluded, allowedFile); violation != nil {
 		t.Fatalf("an unrelated sibling file was rejected: %+v", violation)
@@ -85,6 +89,14 @@ func TestDeriveGeneralReadScopeFromRequestAndSelectedResources(t *testing.T) {
 	}
 	if pathWithinScope("/var/lib/safeops/lab", "/var/lib/safeops/lab-escape/log") {
 		t.Fatal("lexical sibling escaped the authorized scope")
+	}
+	colonExclusion := deriveGeneralReadScope("inspect /var/log except: /var/log/private", nil)
+	if colonExclusion == nil || len(colonExclusion.ExcludedPaths) != 1 || colonExclusion.ExcludedPaths[0] != "/var/log/private" {
+		t.Fatalf("an exclusion marker before a colon was lost: %+v", colonExclusion)
+	}
+	chineseColon := deriveGeneralReadScope("检查 /var/log，排除： /var/log/private", nil)
+	if chineseColon == nil || len(chineseColon.ExcludedPaths) != 1 || chineseColon.ExcludedPaths[0] != "/var/log/private" {
+		t.Fatalf("a Chinese exclusion marker before a colon was lost: %+v", chineseColon)
 	}
 }
 

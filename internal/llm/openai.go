@@ -153,16 +153,35 @@ func decodeAndValidateDecision(content string) (Decision, error) {
 }
 
 func validateDecisionForRequest(decision Decision, input DecisionRequest) error {
-	if decision.Kind != DecisionFinal || len(input.Observations) == 0 {
-		return nil
-	}
-	for _, observation := range input.Observations {
-		reference := strings.TrimSpace(observation.EvidenceRef)
-		if reference != "" && strings.Contains(decision.FinalAnswer, reference) {
+	switch decision.Kind {
+	case DecisionTool:
+		for _, capability := range input.Tools {
+			if decision.ServerID == capability.ServerID && decision.Tool == capability.Name {
+				return nil
+			}
+		}
+		return errors.New("validate: tool decision must copy an exact listed server_id and tool name")
+	case DecisionActionRequest:
+		for _, capability := range input.ManagedActions {
+			if decision.Tool == capability.Name {
+				return nil
+			}
+		}
+		return errors.New("validate: action_request must copy an exact listed managed_action name")
+	case DecisionFinal:
+		if len(input.Observations) == 0 {
 			return nil
 		}
+		for _, observation := range input.Observations {
+			reference := strings.TrimSpace(observation.EvidenceRef)
+			if reference != "" && strings.Contains(decision.FinalAnswer, reference) {
+				return nil
+			}
+		}
+		return errors.New("validate: final_answer must cite at least one provided evidence_ref exactly")
+	default:
+		return nil
 	}
-	return errors.New("validate: final_answer must cite at least one provided evidence_ref exactly")
 }
 
 func decisionRepairPrompt(contractErr error) string {

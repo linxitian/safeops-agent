@@ -68,12 +68,43 @@ func TestOpenAICompatibleRepairsMalformedDecisionOnce(t *testing.T) {
 	}))
 	defer server.Close()
 	provider, _ := NewOpenAICompatible(Config{BaseURL: server.URL, APIKey: "key", Model: "model", Client: server.Client()})
-	decision, err := provider.Decide(context.Background(), DecisionRequest{Objective: "修复 /var/log 磁盘占用问题"})
+	decision, err := provider.Decide(context.Background(), DecisionRequest{Objective: "修复 /var/log 磁盘占用问题", Tools: []ToolCapability{{ServerID: "system", Name: "system.get_disk_usage"}}})
 	if err != nil {
 		t.Fatal(err)
 	}
 	if requests != 2 || decision.ExpectedObservation != "目录占用" {
 		t.Fatalf("repair result = (%d, %+v), want one retry and corrected decision", requests, decision)
+	}
+}
+
+func TestOpenAICompatibleRepairsUnlistedToolNameOnce(t *testing.T) {
+	requests := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requests++
+		var request struct {
+			Messages []chatMessage `json:"messages"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
+			t.Fatal(err)
+		}
+		tool := "get_disk_usage"
+		if requests == 2 {
+			if len(request.Messages) != 3 || !strings.Contains(request.Messages[2].Content, "exact listed server_id and tool name") {
+				t.Fatalf("tool-name repair feedback missing: %+v", request.Messages)
+			}
+			tool = "system.get_disk_usage"
+		}
+		content := `{"kind":"tool","decision_summary":"读取磁盘占用","server_id":"system","tool":"` + tool + `","arguments":{"path":"/var/log"},"expected_observation":"磁盘占用"}`
+		_ = json.NewEncoder(w).Encode(map[string]any{"choices": []any{map[string]any{"message": map[string]any{"role": "assistant", "content": content}}}})
+	}))
+	defer server.Close()
+	provider, _ := NewOpenAICompatible(Config{BaseURL: server.URL, APIKey: "key", Model: "model", Client: server.Client()})
+	decision, err := provider.Decide(context.Background(), DecisionRequest{Objective: "检查 /var/log", Tools: []ToolCapability{{ServerID: "system", Name: "system.get_disk_usage"}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if requests != 2 || decision.Tool != "system.get_disk_usage" {
+		t.Fatalf("tool-name repair result = (%d, %+v), want one retry with exact tool", requests, decision)
 	}
 }
 
@@ -109,7 +140,7 @@ func TestOpenAICompatibleRepairsUncitedFinalOnce(t *testing.T) {
 }
 
 func TestValidateDecisionForRequestRequiresExactEvidenceReference(t *testing.T) {
-	input := DecisionRequest{Observations: []Observation{{EvidenceRef: "trace://task/11"}}}
+	input := DecisionRequest{Tools: []ToolCapability{{ServerID: "system", Name: "system.get_disk_usage"}}, Observations: []Observation{{EvidenceRef: "trace://task/11"}}}
 	uncited := Decision{Kind: DecisionFinal, FinalAnswer: "已经检查完成。"}
 	if err := validateDecisionForRequest(uncited, input); err == nil {
 		t.Fatal("uncited final answer was accepted")
@@ -118,8 +149,11 @@ func TestValidateDecisionForRequestRequiresExactEvidenceReference(t *testing.T) 
 	if err := validateDecisionForRequest(cited, input); err != nil {
 		t.Fatal(err)
 	}
-	if err := validateDecisionForRequest(Decision{Kind: DecisionTool}, input); err != nil {
-		t.Fatalf("non-final decision was incorrectly subjected to citation validation: %v", err)
+	if err := validateDecisionForRequest(Decision{Kind: DecisionTool, ServerID: "system", Tool: "system.get_disk_usage"}, input); err != nil {
+		t.Fatalf("exact listed tool was rejected: %v", err)
+	}
+	if err := validateDecisionForRequest(Decision{Kind: DecisionTool, ServerID: "system", Tool: "get_disk_usage"}, input); err == nil {
+		t.Fatal("shortened unlisted tool name was accepted")
 	}
 }
 

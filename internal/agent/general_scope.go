@@ -125,7 +125,7 @@ func isAmbiguousResourceFollowup(request string) bool {
 			return true
 		}
 	}
-	for _, marker := range []string{"these files", "those files", "selected file", "selected resource", "previous file", "which file", "which one", "which should", "them"} {
+	for _, marker := range []string{"these files", "those files", "selected file", "selected resource", "previous file", "this file", "that file", "this one", "that one", "which file", "which one", "which should", "them", "it"} {
 		if containsASCIIPhrase(lower, marker) {
 			return true
 		}
@@ -194,7 +194,7 @@ func validateGeneralReadScope(scope *generalReadScope, decision llm.Decision) *r
 		return nil
 	}
 	tool := decision.ServerID + "/" + decision.Tool
-	if !fileScopedReadTool(tool) {
+	if !scopedPathReadTool(tool) {
 		return &readScopeViolation{
 			Code:    "REQUEST_READ_SCOPE_TOOL_MISMATCH",
 			Summary: "文件范围任务只能选择文件元数据、文件系统容量或磁盘压力的路径受限工具",
@@ -220,7 +220,7 @@ func validateGeneralReadScope(scope *generalReadScope, decision llm.Decision) *r
 	}
 	path = filepath.Clean(path)
 	for _, excluded := range scope.ExcludedPaths {
-		if pathWithinScope(excluded, path) || (fileScopedReadToolTraverses(tool) && pathWithinScope(path, excluded)) {
+		if pathWithinScope(excluded, path) || (scopedPathReadToolTraverses(tool) && pathWithinScope(path, excluded)) {
 			return &readScopeViolation{
 				Code:          "REQUEST_READ_SCOPE_EXCLUDED",
 				Summary:       "工具 path 位于操作员明确排除的路径内，或会遍历到该排除路径",
@@ -242,13 +242,20 @@ func validateGeneralReadScope(scope *generalReadScope, decision llm.Decision) *r
 	}
 }
 
-func fileScopedReadToolTraverses(tool string) bool {
-	return tool == "file/file.list_directory" || tool == "file/file.find_large"
+func scopedPathReadToolTraverses(tool string) bool {
+	switch tool {
+	case "file/file.list_directory", "file/file.find_large", "config/config.snapshot", "config/config.diff_snapshot":
+		return true
+	default:
+		return false
+	}
 }
 
-func fileScopedReadTool(tool string) bool {
+func scopedPathReadTool(tool string) bool {
 	switch tool {
-	case "file/file.stat", "file/file.list_directory", "file/file.sha256", "file/file.find_large", "system/system.get_disk_usage", "diagnostic/diagnostic.disk_pressure":
+	case "file/file.stat", "file/file.list_directory", "file/file.sha256", "file/file.find_large",
+		"config/config.get_metadata", "config/config.snapshot", "config/config.diff_snapshot",
+		"system/system.get_disk_usage", "diagnostic/diagnostic.disk_pressure":
 		return true
 	default:
 		return false

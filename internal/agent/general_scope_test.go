@@ -39,6 +39,11 @@ func TestDeriveGeneralReadScopeFromRequestAndSelectedResources(t *testing.T) {
 	if followup := deriveGeneralReadScope("which of them is important?", selected.AuthorizedPaths); followup == nil || followup.Source != "session.selected_resources" {
 		t.Fatalf("an English file follow-up was confused with the substring port: %+v", followup)
 	}
+	for _, request := range []string{"is it important?", "inspect this file"} {
+		if followup := deriveGeneralReadScope(request, selected.AuthorizedPaths); followup == nil || followup.Source != "session.selected_resources" {
+			t.Fatalf("a singular English file follow-up lost selected-resource scope for %q: %+v", request, followup)
+		}
+	}
 	negated := requestScopePaths("只看 SafeOps Lab，不要查看 /var/log，也不要读取 /etc")
 	if len(negated) != 1 || negated[0] != safeOpsLabReadRoot {
 		t.Fatalf("negated paths expanded the authorized scope: %+v", negated)
@@ -86,6 +91,16 @@ func TestDeriveGeneralReadScopeFromRequestAndSelectedResources(t *testing.T) {
 	rootDiscovery := llm.Decision{Kind: llm.DecisionTool, ServerID: "file", Tool: "file.list_roots", Arguments: map[string]any{}}
 	if violation := validateGeneralReadScope(excluded, rootDiscovery); violation == nil || violation.Code != "REQUEST_READ_SCOPE_TOOL_MISMATCH" {
 		t.Fatalf("global root discovery was accepted for an explicit file scope: %+v", violation)
+	}
+	configScope := deriveGeneralReadScope("inspect /etc/safeops/agent.yaml", nil)
+	configMetadata := llm.Decision{Kind: llm.DecisionTool, ServerID: "config", Tool: "config.get_metadata", Arguments: map[string]any{"path": "/etc/safeops/agent.yaml"}}
+	if violation := validateGeneralReadScope(configScope, configMetadata); violation != nil {
+		t.Fatalf("path-scoped configuration metadata was rejected: %+v", violation)
+	}
+	configExcluded := deriveGeneralReadScope("inspect /etc/safeops except /etc/safeops/private", nil)
+	configSnapshot := llm.Decision{Kind: llm.DecisionTool, ServerID: "config", Tool: "config.snapshot", Arguments: map[string]any{"path": "/etc/safeops"}}
+	if violation := validateGeneralReadScope(configExcluded, configSnapshot); violation == nil || violation.Code != "REQUEST_READ_SCOPE_EXCLUDED" {
+		t.Fatalf("a configuration snapshot could traverse an excluded subtree: %+v", violation)
 	}
 	if pathWithinScope("/var/lib/safeops/lab", "/var/lib/safeops/lab-escape/log") {
 		t.Fatal("lexical sibling escaped the authorized scope")

@@ -113,6 +113,22 @@ func TestDeriveGeneralReadScopeFromRequestAndSelectedResources(t *testing.T) {
 	if chineseColon == nil || len(chineseColon.ExcludedPaths) != 1 || chineseColon.ExcludedPaths[0] != "/var/log/private" {
 		t.Fatalf("a Chinese exclusion marker before a colon was lost: %+v", chineseColon)
 	}
+	exclusionOnly := deriveGeneralReadScope("check host health but don't inspect /etc", nil)
+	if exclusionOnly == nil || len(exclusionOnly.AuthorizedPaths) != 0 || len(exclusionOnly.ExcludedPaths) != 1 || exclusionOnly.ExcludedPaths[0] != "/etc" {
+		t.Fatalf("an exclusion-only request lost its local scope: %+v", exclusionOnly)
+	}
+	hostHealth := llm.Decision{Kind: llm.DecisionTool, ServerID: "system", Tool: "system.get_overview", Arguments: map[string]any{}}
+	if violation := validateGeneralReadScope(exclusionOnly, hostHealth); violation != nil {
+		t.Fatalf("an exclusion-only file scope blocked an unrelated host health read: %+v", violation)
+	}
+	excludedStat := llm.Decision{Kind: llm.DecisionTool, ServerID: "file", Tool: "file.stat", Arguments: map[string]any{"path": "/etc"}}
+	if violation := validateGeneralReadScope(exclusionOnly, excludedStat); violation == nil || violation.Code != "REQUEST_READ_SCOPE_EXCLUDED" {
+		t.Fatalf("an exclusion-only scope allowed the excluded path: %+v", violation)
+	}
+	otherStat := llm.Decision{Kind: llm.DecisionTool, ServerID: "file", Tool: "file.stat", Arguments: map[string]any{"path": "/var/log/messages"}}
+	if violation := validateGeneralReadScope(exclusionOnly, otherStat); violation != nil {
+		t.Fatalf("an exclusion-only scope blocked an unrelated path: %+v", violation)
+	}
 }
 
 func TestGeneralRuntimeReplansOutOfScopeReadBeforeMCPCall(t *testing.T) {

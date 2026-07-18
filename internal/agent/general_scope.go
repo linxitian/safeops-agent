@@ -38,7 +38,7 @@ func deriveGeneralReadScope(request string, selectedResources []string) *general
 		paths = normalizedUniquePaths(selectedResources)
 		source = "session.selected_resources"
 	}
-	if len(paths) == 0 {
+	if len(paths) == 0 && len(excluded) == 0 {
 		return nil
 	}
 	return &generalReadScope{ResourceType: "file", AuthorizedPaths: paths, ExcludedPaths: excluded, Source: source}
@@ -194,6 +194,10 @@ func validateGeneralReadScope(scope *generalReadScope, decision llm.Decision) *r
 		return nil
 	}
 	tool := decision.ServerID + "/" + decision.Tool
+	exclusionOnly := len(scope.AuthorizedPaths) == 0 && len(scope.ExcludedPaths) > 0
+	if exclusionOnly && !scopedPathReadTool(tool) {
+		return nil
+	}
 	if !scopedPathReadTool(tool) {
 		return &readScopeViolation{
 			Code:    "REQUEST_READ_SCOPE_TOOL_MISMATCH",
@@ -228,6 +232,9 @@ func validateGeneralReadScope(scope *generalReadScope, decision llm.Decision) *r
 				AttemptedPath: path,
 			}
 		}
+	}
+	if exclusionOnly {
+		return nil
 	}
 	for _, authorized := range scope.AuthorizedPaths {
 		if pathWithinScope(authorized, path) {

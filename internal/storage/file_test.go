@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"path/filepath"
 	"sync"
 	"testing"
 	"time"
@@ -93,6 +94,55 @@ func TestAtomicSessionMutationAcrossStoreInstances(t *testing.T) {
 	}
 	if len(value.Messages) != updates {
 		t.Fatalf("atomic mutations retained %d/%d messages", len(value.Messages), updates)
+	}
+}
+
+func TestTaskPreparationRecoversEveryDurableBoundary(t *testing.T) {
+	for _, crashStep := range []string{"journal", "task", "session"} {
+		t.Run(crashStep, func(t *testing.T) {
+			ctx := context.Background()
+			root := t.TempDir()
+			store, err := NewFileStore(root)
+			if err != nil {
+				t.Fatal(err)
+			}
+			now := time.Now().UTC()
+			if err := store.SaveSession(ctx, session.Session{ID: "ses_prepare", Name: "new", CreatedAt: now, UpdatedAt: now}); err != nil {
+				t.Fatal(err)
+			}
+			value := task.Task{ID: "task_prepare", SessionID: "ses_prepare", Objective: "inspect", OriginalRequest: "inspect", State: task.New, CreatedAt: now, UpdatedAt: now}
+			preparedSession := session.Session{ID: "ses_prepare", Name: "new", Messages: []session.Message{{ID: "msg_prepare", Role: session.RoleUser, Content: "inspect", TaskID: value.ID, CreatedAt: now}}, CreatedAt: now, UpdatedAt: now}
+			err = store.withExclusive(ctx, func() error {
+				record := taskPreparation{SchemaVersion: 1, Task: value, Session: preparedSession}
+				if err := store.saveLocked(ctx, "state", preparationID(value.ID), record); err != nil || crashStep == "journal" {
+					return err
+				}
+				if err := store.saveLocked(ctx, "tasks", value.ID, value); err != nil || crashStep == "task" {
+					return err
+				}
+				return store.saveLocked(ctx, "sessions", preparedSession.ID, preparedSession)
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+
+			reopened, err := NewFileStore(root)
+			if err != nil {
+				t.Fatal(err)
+			}
+			preparedTask, err := reopened.GetTask(ctx, value.ID)
+			if err != nil || preparedTask.SessionID != value.SessionID {
+				t.Fatalf("task was not recovered: %+v %v", preparedTask, err)
+			}
+			recoveredSession, err := reopened.GetSession(ctx, value.SessionID)
+			if err != nil || len(recoveredSession.Messages) != 1 || recoveredSession.Messages[0].TaskID != value.ID {
+				t.Fatalf("session was not recovered exactly once: %+v %v", recoveredSession, err)
+			}
+			matches, err := filepath.Glob(filepath.Join(root, "state", "prepare-*.json"))
+			if err != nil || len(matches) != 0 {
+				t.Fatalf("preparation journal was not removed: %v %v", matches, err)
+			}
+		})
 	}
 }
 

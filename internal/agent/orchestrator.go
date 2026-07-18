@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"os"
 	"strings"
 	"time"
 
@@ -76,7 +77,7 @@ type metricIntent struct {
 func (o *Orchestrator) Prepare(ctx context.Context, taskID, sessionID, request string) (task.Task, error) {
 	now := time.Now().UTC()
 	t := task.Task{ID: taskID, SessionID: sessionID, Objective: request, OriginalRequest: request, State: task.New, CreatedAt: now, UpdatedAt: now}
-	if _, err := o.Store.UpdateSession(ctx, sessionID, func(s *session.Session) error {
+	if _, err := o.Store.PrepareTask(ctx, t, func(s *session.Session) error {
 		if len(s.Messages) == 0 && isDefaultSessionName(s.Name) {
 			s.Name = sessionTitleFromRequest(request)
 		}
@@ -86,13 +87,7 @@ func (o *Orchestrator) Prepare(ctx context.Context, taskID, sessionID, request s
 	}); err != nil {
 		return t, err
 	}
-	if err := o.Store.SaveTask(ctx, t); err != nil {
-		return t, err
-	}
-	if err := o.appendTrace(ctx, t, trace.Received, map[string]any{"request": request}); err != nil {
-		return t, err
-	}
-	if err := o.appendTrace(ctx, t, trace.TaskCreated, map[string]any{"state": t.State}); err != nil {
+	if err := o.ensureInitialTrace(ctx, t); err != nil {
 		return t, err
 	}
 	return t, nil
@@ -111,6 +106,9 @@ func (o *Orchestrator) Run(ctx context.Context, taskID, sessionID, request strin
 	}
 	if t.SessionID != sessionID || t.OriginalRequest != request {
 		return t, errors.New("prepared task does not match request")
+	}
+	if err := o.ensureInitialTrace(ctx, t); err != nil {
+		return t, err
 	}
 	if terminalTask(t.State) || t.State == task.WaitingApproval {
 		return t, nil
@@ -364,6 +362,34 @@ func (o *Orchestrator) timeout() time.Duration {
 func (o *Orchestrator) appendTrace(ctx context.Context, t task.Task, typ trace.Type, data any) error {
 	_, err := o.Trace.Append(ctx, t.ID, t.SessionID, typ, data)
 	return err
+}
+
+func (o *Orchestrator) ensureInitialTrace(ctx context.Context, value task.Task) error {
+	if o.Trace == nil {
+		return errors.New("trace writer is required")
+	}
+	events, err := o.Trace.Read(value.ID)
+	if errors.Is(err, os.ErrNotExist) {
+		events = nil
+	} else if err != nil {
+		return err
+	}
+	if len(events) == 0 {
+		if err := o.appendTrace(ctx, value, trace.Received, map[string]any{"request": value.OriginalRequest}); err != nil {
+			return err
+		}
+		events = append(events, trace.Event{Type: trace.Received, SessionID: value.SessionID})
+	}
+	if events[0].Type != trace.Received || events[0].SessionID != value.SessionID {
+		return errors.New("task trace does not start with the expected RECEIVED event")
+	}
+	if len(events) == 1 {
+		return o.appendTrace(ctx, value, trace.TaskCreated, map[string]any{"state": value.State})
+	}
+	if events[1].Type != trace.TaskCreated || events[1].SessionID != value.SessionID {
+		return errors.New("task trace does not contain the expected TASK_CREATED prefix")
+	}
+	return nil
 }
 func emitEvent(emit EventSink, t task.Task, message string) {
 	emit(RuntimeEvent{Type: "task.progress", TaskID: t.ID, State: t.State, Message: message, Timestamp: time.Now().UTC()})

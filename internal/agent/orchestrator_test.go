@@ -58,6 +58,47 @@ func TestRecoverIncompleteResumesPreparedTaskAfterStoreReopen(t *testing.T) {
 	}
 }
 
+func TestRunRepairsPartialInitialTraceWithoutDuplicates(t *testing.T) {
+	ctx := context.Background()
+	store, err := storage.NewFileStore(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	traceWriter, err := trace.NewWriter(store.Root() + "/traces")
+	if err != nil {
+		t.Fatal(err)
+	}
+	now := time.Now().UTC()
+	if err := store.SaveSession(ctx, session.Session{ID: "ses_partial_trace", Name: "partial", CreatedAt: now, UpdatedAt: now}); err != nil {
+		t.Fatal(err)
+	}
+	value := task.Task{ID: "task_partial_trace", SessionID: "ses_partial_trace", Objective: "查看 CPU", OriginalRequest: "查看 CPU", State: task.New, CreatedAt: now, UpdatedAt: now}
+	if _, err := store.PrepareTask(ctx, value, func(current *session.Session) error {
+		current.Messages = append(current.Messages, session.Message{ID: "msg_partial_trace", Role: session.RoleUser, Content: value.OriginalRequest, TaskID: value.ID, CreatedAt: now})
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := traceWriter.Append(ctx, value.ID, value.SessionID, trace.Received, map[string]any{"request": value.OriginalRequest}); err != nil {
+		t.Fatal(err)
+	}
+	orchestrator := &Orchestrator{Store: store, Registry: fakeTools{}, Safety: fakeSafety{}, Trace: traceWriter}
+	if _, err := orchestrator.Run(ctx, value.ID, value.SessionID, value.OriginalRequest, nil); err != nil {
+		t.Fatal(err)
+	}
+	events, err := traceWriter.Read(value.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	counts := map[trace.Type]int{}
+	for _, event := range events {
+		counts[event.Type]++
+	}
+	if len(events) < 2 || events[0].Type != trace.Received || events[1].Type != trace.TaskCreated || counts[trace.Received] != 1 || counts[trace.TaskCreated] != 1 {
+		t.Fatalf("initial trace was not repaired exactly once: %+v", events)
+	}
+}
+
 func TestRecoverIncompleteFailsClosedForInFlightPrivilegedAction(t *testing.T) {
 	ctx := context.Background()
 	store, err := storage.NewFileStore(t.TempDir())

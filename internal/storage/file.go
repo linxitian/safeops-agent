@@ -31,13 +31,23 @@ type FileStore struct {
 	now  func() time.Time
 }
 
+type taskPreparation struct {
+	SchemaVersion int             `json:"schema_version"`
+	Task          task.Task       `json:"task"`
+	Session       session.Session `json:"session"`
+}
+
 func NewFileStore(root string) (*FileStore, error) {
 	for _, dir := range []string{"sessions", "tasks", "approvals", "traces", "quarantine", "state", "lab"} {
 		if err := os.MkdirAll(filepath.Join(root, dir), 0o750); err != nil {
 			return nil, fmt.Errorf("create data directory %s: %w", dir, err)
 		}
 	}
-	return &FileStore{root: root, now: time.Now}, nil
+	store := &FileStore{root: root, now: time.Now}
+	if err := store.withExclusive(context.Background(), store.recoverTaskPreparationsLocked); err != nil {
+		return nil, fmt.Errorf("recover task preparations: %w", err)
+	}
+	return store, nil
 }
 
 func (s *FileStore) Root() string { return s.root }
@@ -80,6 +90,57 @@ func (s *FileStore) ListSessions(ctx context.Context) ([]session.Session, error)
 	err := s.list(ctx, "sessions", func() any { return &session.Session{} }, func(v any) { out = append(out, *v.(*session.Session)) })
 	sort.Slice(out, func(i, j int) bool { return out[i].UpdatedAt.After(out[j].UpdatedAt) })
 	return out, err
+}
+
+func (s *FileStore) PrepareTask(ctx context.Context, value task.Task, mutate func(*session.Session) error) (session.Session, error) {
+	if err := validateID(value.ID); err != nil {
+		return session.Session{}, err
+	}
+	if err := validateID(value.SessionID); err != nil {
+		return session.Session{}, err
+	}
+	if mutate == nil {
+		return session.Session{}, errors.New("session mutation is required")
+	}
+	var prepared session.Session
+	err := s.withExclusive(ctx, func() error {
+		var existing task.Task
+		if err := s.loadLocked("tasks", value.ID, &existing); err == nil {
+			return errors.New("task already exists")
+		} else if !errors.Is(err, ErrNotFound) {
+			return err
+		}
+		if err := s.loadLocked("sessions", value.SessionID, &prepared); err != nil {
+			return err
+		}
+		if err := mutate(&prepared); err != nil {
+			return err
+		}
+		if prepared.ID != value.SessionID {
+			return errors.New("session mutation changed the session id")
+		}
+		messageCount := 0
+		for _, message := range prepared.Messages {
+			if message.TaskID == value.ID {
+				messageCount++
+			}
+		}
+		if messageCount != 1 {
+			return errors.New("prepared session must contain exactly one message bound to the task")
+		}
+		record := taskPreparation{SchemaVersion: 1, Task: value, Session: prepared}
+		if err := s.saveLocked(ctx, "state", preparationID(value.ID), record); err != nil {
+			return err
+		}
+		if err := s.saveLocked(ctx, "tasks", value.ID, value); err != nil {
+			return err
+		}
+		if err := s.saveLocked(ctx, "sessions", prepared.ID, prepared); err != nil {
+			return err
+		}
+		return s.removePreparationLocked(value.ID)
+	})
+	return prepared, err
 }
 func (s *FileStore) SaveTask(ctx context.Context, value task.Task) error {
 	if err := validateID(value.ID); err != nil {
@@ -229,6 +290,54 @@ func (s *FileStore) validateTaskWrite(current, next task.Task) error {
 		return ErrLeaseExpired
 	}
 	return nil
+}
+
+func preparationID(taskID string) string { return "prepare-" + taskID }
+
+func (s *FileStore) recoverTaskPreparationsLocked() error {
+	entries, err := os.ReadDir(filepath.Join(s.root, "state"))
+	if err != nil {
+		return err
+	}
+	for _, entry := range entries {
+		name := entry.Name()
+		if entry.IsDir() || !strings.HasPrefix(name, "prepare-") || filepath.Ext(name) != ".json" {
+			continue
+		}
+		var record taskPreparation
+		if err := s.loadLocked("state", strings.TrimSuffix(name, ".json"), &record); err != nil {
+			return err
+		}
+		if record.SchemaVersion != 1 || validateID(record.Task.ID) != nil || validateID(record.Session.ID) != nil || record.Task.SessionID != record.Session.ID {
+			return fmt.Errorf("invalid task preparation journal %s", name)
+		}
+		if err := s.saveLocked(context.Background(), "tasks", record.Task.ID, record.Task); err != nil {
+			return err
+		}
+		if err := s.saveLocked(context.Background(), "sessions", record.Session.ID, record.Session); err != nil {
+			return err
+		}
+		if err := s.removePreparationLocked(record.Task.ID); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (s *FileStore) removePreparationLocked(taskID string) error {
+	dir := filepath.Join(s.root, "state")
+	if err := os.Remove(filepath.Join(dir, preparationID(taskID)+".json")); err != nil {
+		return err
+	}
+	directory, err := os.Open(dir)
+	if err != nil {
+		return err
+	}
+	if err := directory.Sync(); err != nil {
+		_ = directory.Close()
+		return err
+	}
+	return directory.Close()
 }
 
 func (s *FileStore) withExclusive(ctx context.Context, operation func() error) error {

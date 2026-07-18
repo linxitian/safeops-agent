@@ -273,7 +273,7 @@ Ubuntu/amd64 与官方 Kylin V11/loong64 报告均包含六个 PASS 套件和 16
 
 - 七类 Collector 已覆盖题目指定的 proc/process、磁盘、网络、systemd、journal、系统配置和 allowlist 配置变化，并已在官方目标机原生执行；Prometheus/OTel 传输无关适配模型也已原生完成计数审计，但尚未部署或验证外部遥测平台。
 - 已有 39 个只读 Tool 覆盖八个要求域；Registry 生命周期、工具集变化、非重叠周期健康、依赖元数据、真实 initialize 身份及有界失败/恢复历史已通过 Ubuntu 协议和 API/UI 测试，新增周期行为仍待本次精确构建在官方 Kylin 目标机验证。
-- 通用 Agent Runtime 已用真实兼容 Provider 在目标机验证；候选 `d0d6642` 使用 DeepSeek V4 Flash 在 6.1 秒内完成真实 `/var/log` 调查，正确报告精确字节、GiB 换算和 13.86% 使用率，并引用对应 `VALID` Trace 证据。近期用户/助手消息和有序已选资源会以有界、脱敏结构进入追问规划，单次 Provider 调用受持久 Agent 截止时间约束。无 Provider 时仍可使用 CPU/内存确定性纵切片。
+- 通用 Agent Runtime 已用真实兼容 Provider 在目标机验证；候选 `96e6702` 使用 DeepSeek V4 Flash 在 10.1 秒内完成真实 `/var/log` 调查，正确报告 GiB 换算和 13.9% 使用率，并引用对应 `VALID` Trace 证据。近期用户/助手消息和有序已选资源会以有界、脱敏结构进入追问规划，单次 Provider 调用受持久 Agent 截止时间约束。无 Provider 时仍可使用 CPU/内存确定性纵切片。
 - 模型申请固定服务重启/进程终止，以及读写根分离的路径资源管理器当前为 `TESTED`；尚未在官方 Kylin 目标机完成这一新增范围的原生审批执行与真实浏览器复测，不能沿用旧版本证据提升为 `TARGET_VERIFIED`。
 - SSE 保留最近 200 个进程内事件用于 `Last-Event-ID` 回放；跨重启不伪造历史，而是发出 `task.gap` + 持久 Task 快照并让前端回读完整 Trace。
 - Session JSON 当前内嵌 Messages；文件锁与原子 mutation 已避免并发丢失，但超长会话未来仍可拆成独立 Message Store。

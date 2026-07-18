@@ -81,19 +81,19 @@
     },
     {
       "scope": "pr_57_real_agent_decision_reliability",
-      "candidate_commit": "d0d664289ef380aca0fea9b1fe4ea2d13aac13d8",
+      "candidate_commit": "96e6702cadc88ab9b243b9fb1db6240d2c8698da",
       "candidate_commit_reachable_from_default_branch": false,
       "pull_request": 57,
       "pull_ref": "refs/pull/57/head",
-      "release_sha256": "d4feb518862942d35c90492f2c247db3c32e73bf75978771bfb99371b49d75ea",
+      "release_sha256": "351ff342e1b783e092dd28a90b4efe4ba9f3e0a174c421a5fa23cf47bbcb3650",
       "provider": {
         "base_url": "https://api.deepseek.com",
         "model": "deepseek-v4-flash"
       },
-      "task_ids": ["task_b91a18bc41a6d713030be924"],
+      "task_ids": ["task_a054a5ffc7680ae9016682c4"],
       "runtime_checks": {
         "result": "COMPLETED",
-        "elapsed_seconds": 6.1,
+        "elapsed_seconds": 10.1,
         "scoped_tool_calls": 1,
         "evidence_citations": 1,
         "trace_integrity": "VALID",

@@ -117,23 +117,23 @@ This is exact-merge native runtime regression evidence for the named Collector, 
 
 ## PR #57 real-agent reliability follow-up
 
-Candidate `d0d664289ef380aca0fea9b1fe4ea2d13aac13d8` passed `go test ./...`,
+Candidate `96e6702cadc88ab9b243b9fb1db6240d2c8698da` passed `go test ./...`,
 `go vet ./...`, the installer environment regression, 19 frontend tests,
 frontend lint/build, and all 16 commands for both linux/amd64 and
 linux/loong64 with `CGO_ENABLED=0`. Its LoongArch64 release archive SHA-256
-was `d4feb518862942d35c90492f2c247db3c32e73bf75978771bfb99371b49d75ea`.
+was `351ff342e1b783e092dd28a90b4efe4ba9f3e0a174c421a5fa23cf47bbcb3650`.
 The checksum-verified bundle was installed on the official Kylin target;
-`/opt/safeops/VERSION` reported `d0d6642`, both core services were active,
+`/opt/safeops/VERSION` reported `96e6702`, both core services were active,
 8/8 MCP servers were `HEALTHY`, and all four fault-generator Lab units
 remained inactive.
 
 The operator changed the persisted OpenAI-compatible Provider to
 `https://api.deepseek.com` with model `deepseek-v4-flash`; the secret value
 was neither read back nor recorded. Target task
-`task_b91a18bc41a6d713030be924` then handled `修复 /var/log 磁盘占用问题`
-in 6.1 seconds and completed after one scoped `system.get_disk_usage` call on
-`/var/log`. Its final answer preserved the exact byte counts, converted them
-correctly to GiB, reported 13.86% filesystem use, concluded that no disk
+`task_a054a5ffc7680ae9016682c4` then handled `修复 /var/log 磁盘占用问题`
+in 10.1 seconds and completed after one scoped `system.get_disk_usage` call on
+`/var/log`. Its final answer converted the structured byte counts correctly
+to GiB, reported 13.9% filesystem use, concluded that no disk
 pressure required repair, and cited the exact evidence reference. The
 exported Trace was `VALID`.
 

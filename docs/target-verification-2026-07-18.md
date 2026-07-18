@@ -6,8 +6,9 @@ Evidence identities, candidate-to-merge mappings, checksums, and the boundary
 between Git-tracked material and the maintainers' restricted raw archive are
 indexed in [`docs/evidence`](evidence/README.md). Raw reports, Task/Trace
 exports, browser captures, screenshots, and release archives are not tracked
-in this repository; a fresh clone can validate their recorded identities but
-cannot recompute their hashes without obtaining the external artifacts.
+in this repository; a fresh clone can validate default-branch identities and
+retrieve the recorded candidate lineage through public PR refs, but cannot
+recompute external artifact hashes without obtaining those artifacts.
 
 ## Release identity
 
@@ -35,7 +36,7 @@ Generated reports intentionally retain `target_verified=false`. That field preve
 
 ## Complete MCP native-call follow-up
 
-Candidate runtime `b5383e9` extended the target test from one representative memory call to a unique, individually time-bounded call for every discovered Tool. The candidate object was not retained after squash merge; its repository-resolvable source is merge commit `816f8cf` (PR #21), with the mapping recorded in the evidence manifest. Its full release gates passed, the LoongArch64 archive SHA-256 was `380660f64e08936f3f0581f94400bf3cedc3b51916ec21ea82cf706971b32076`, and the exact candidate bundle was installed before the final run.
+Candidate runtime `b5383e9` extended the target test from one representative memory call to a unique, individually time-bounded call for every discovered Tool. It is an intermediate ancestor of final PR #21 head `a1ce22f`, not a commit reachable from `main`; the PR was squash-merged as `816f8cf`. The public pull ref and all three full identities are recorded in the evidence manifest. Its full release gates passed, the LoongArch64 archive SHA-256 was `380660f64e08936f3f0581f94400bf3cedc3b51916ec21ea82cf706971b32076`, and the exact candidate bundle was installed before the final run.
 
 The first expanded target run exposed that the unquoted comma in the YAML `mcp-config` root argument left `/var/lib/safeops/lab/config` outside the effective allowlist. Issues #19 and #20 record the coverage gap and manifest defect. Both development and installed manifests now preserve `/etc/safeops,/var/lib/safeops/lab/config` as one argument, with a load-time regression test for each file.
 
@@ -76,7 +77,7 @@ The port, CPU, disk and injection tasks were first executed on ancestor release 
 
 ## Installed browser audit follow-up
 
-Candidate runtime `2b26de4` added an explicit SVG favicon to the bundled Web assets and an API regression test for its MIME type and security headers. The candidate object was not retained after squash merge; its repository-resolvable source is `7479752` (PR #23). Its complete release gates passed, the LoongArch64 archive SHA-256 was `0accff7af8ad7eaecabe4e262f4cbc1fa6caa9359f34615e5927174af8d135f8`, and that exact candidate bundle was checksum-verified and installed on the target before browser capture.
+Candidate runtime `2b26de4` added an explicit SVG favicon to the bundled Web assets and an API regression test for its MIME type and security headers. It is an intermediate ancestor of final PR #23 head `04f1a91`, not a commit reachable from `main`; the PR was squash-merged as `7479752`. Its complete release gates passed, the LoongArch64 archive SHA-256 was `0accff7af8ad7eaecabe4e262f4cbc1fa6caa9359f34615e5927174af8d135f8`, and that exact candidate bundle was checksum-verified and installed on the target before browser capture.
 
 A clean real Google Chrome session on the Ubuntu operator host traversed the target-served UI through a fixed read-only SSH proxy to target loopback. The proxy accepted only a bounded GET/HEAD allowlist; it did not provide any write or arbitrary-command surface. Console, Overview, Tool, Safety, RCA, Audit, Allowlist and LLM views each reached their expected heading and loaded target-backed data. Overview showed 8/8 healthy MCP Servers and 39 discovered Tools; the Tool page rendered eight Server cards; Allowlist loaded the active managed roots; LLM showed the configured Provider/model while the secret field remained empty and no key was recorded.
 
@@ -96,7 +97,7 @@ The benchmark dangerous-target cases evaluate the production Guard only; executi
 
 ## Native Collector and adapter follow-up
 
-Issue #26 tracked the missing target execution evidence for the seven production Collectors. Candidate runtime `053fc2c` was squash-merged as repository commit `4861dcf` (PR #27); the ephemeral candidate object is not retained in the public Git graph. It passed Go test/vet, the installer environment regression, 14 frontend tests, frontend lint/build and all 16 commands for linux/amd64 and linux/loong64 with `CGO_ENABLED=0`. Its LoongArch64 archive SHA-256 was `d342dd4ed374cfe1b0f2145dd55dbf7eb8ce9c38e77a901a4b102e554a574ef8`.
+Issue #26 tracked the missing target execution evidence for the seven production Collectors. Candidate runtime `053fc2c` is an intermediate ancestor of final PR #27 head `504faef`, not a commit reachable from `main`; the PR was squash-merged as `4861dcf`. It passed Go test/vet, the installer environment regression, 14 frontend tests, frontend lint/build and all 16 commands for linux/amd64 and linux/loong64 with `CGO_ENABLED=0`. Its LoongArch64 archive SHA-256 was `d342dd4ed374cfe1b0f2145dd55dbf7eb8ce9c38e77a901a4b102e554a574ef8`.
 
 The first native candidate correctly failed because the allowlisted Lab configuration directory was empty: six Collectors and both adapters passed, while `config_change` returned no valid observations. The follow-up kept empty results fail-closed, added a bounded SafeFS snapshot for a single allowlisted file, and pointed the production configuration Collector at the installed, non-secret `/etc/safeops/mcp_servers.yaml` manifest. It reads only metadata and a bounded hash in memory; neither the hash nor any Observation value is written to the target report.
 
@@ -105,6 +106,14 @@ After checksum verification and reinstall, `/opt/safeops/bin/targetctl test` ran
 The same report repeated 8/8 MCP health and 39/39 structured native Tool calls. Its JSON and text SHA-256 values were `cb550695d5d3af42cc30ec55cab0500ff68b79b0f86bee8836438e27affadf77` and `45af6344f28da0aafb317370183ea33f71c5369d760710259fc9b10192e69f15`. A field-pattern audit found no persisted Observation value, configuration hash or credential field. The server health endpoint returned HTTP 200, both core units were active and all four fault-generator Lab units remained inactive.
 
 The report remained `WARN` only because the target lacks optional `git` and `go`, and retained `target_verified=false` by design. Maintainer review of the exact release identity, first fail-closed run, corrected native run and count-only artifact promotes M1 to `TARGET_VERIFIED`. This evidence covers in-process Prometheus/OpenTelemetry adaptation; no external telemetry backend was deployed or claimed.
+
+## Exact PR #30 merged-runtime regression
+
+Merge commit `666df77385ece217c2fec2eca48a1007762b6d04` was built after PR #30 with the full Go, frontend, installer, and dual-architecture release gates. The LoongArch64 archive SHA-256 was `33faf74629334318a15f63726baae233455206ab5379a0d7337406300a8b674f`, and the installed bundle reported version `666df77`.
+
+Native report `target_4a368ebd750533d7ddb6` then completed 7/7 Collectors with 200 observations, both adapter models, 8/8 MCP servers, and 39/39 structured Tool calls. Its JSON and text SHA-256 values were `7469aac4b1bc6ff788b5699008122b20ecc873aa1a2ecdab1f2e1a0186048a67` and `e21bbb10bcca77ac0d9d009542f334b6f54ba508263498e6b3995cc748909162`. The result remained `WARN` only for optional target `git`/`go` absence and retained `target_verified=false`.
+
+This is exact-merge native runtime regression evidence for the named Collector, adapter, Registry, and MCP-call checks. It does not exercise the positive/negative M17 guarded-LLM action flows and therefore does not promote M17 beyond `TESTED`. Later merges #34, #36, #38, and #40 require their own exact-merge target release if a new target-compatibility claim is needed.
 
 ## Status decisions and remaining gaps
 

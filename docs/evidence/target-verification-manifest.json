@@ -1,13 +1,13 @@
 {
-  "schema_version": 1,
+  "schema_version": 2,
   "audit_date": "2026-07-18",
   "evidence_availability": "maintainer_external_archive_not_tracked_in_git",
-  "repository": "https://github.com/robll-v1/safeops-agent1.git",
+  "repository": "https://github.com/linxitian/safeops-agent.git",
   "runs": [
     {
       "scope": "initial_provider_and_controlled_workflows",
       "source_commit": "1a10880fd8ae200eb3fa9964943e4112f4cbf6a8",
-      "source_commit_available_in_repository": true,
+      "source_commit_reachable_from_default_branch": true,
       "release_sha256": "4af422c722d267b24efa3f7f16d2536f9ee475dd99326ba2d9247d13e1283945",
       "report_ids": [
         "target_0f70b837d6ab5d7c72bd",
@@ -17,16 +17,22 @@
     },
     {
       "scope": "all_39_mcp_tool_calls",
-      "candidate_commit": "b5383e9",
-      "candidate_commit_available_in_repository": false,
+      "candidate_commit": "b5383e9f9716da4e2e79e21d83401db3faffe6a0",
+      "candidate_commit_reachable_from_default_branch": false,
+      "pull_request": 21,
+      "pull_ref": "refs/pull/21/head",
+      "pull_request_head_at_merge": "a1ce22fafe8da2e920ef381ec5854155888ced7b",
       "merged_commit": "816f8cfeb22d80b63152434f93926829966047ee",
       "release_sha256": "380660f64e08936f3f0581f94400bf3cedc3b51916ec21ea82cf706971b32076",
       "report_ids": ["target_ae6d4bbeb9ae7b8e5764"]
     },
     {
       "scope": "installed_chrome_eight_view_audit",
-      "candidate_commit": "2b26de4",
-      "candidate_commit_available_in_repository": false,
+      "candidate_commit": "2b26de46868a7e4877c08c60974e811ec75e624d",
+      "candidate_commit_reachable_from_default_branch": false,
+      "pull_request": 23,
+      "pull_ref": "refs/pull/23/head",
+      "pull_request_head_at_merge": "04f1a91c6d5f90f9f37d76b9543319f2f16d3ebd",
       "merged_commit": "7479752df7d29272f3a08441b26a887b8bb388e0",
       "release_sha256": "0accff7af8ad7eaecabe4e262f4cbc1fa6caa9359f34615e5927174af8d135f8",
       "browser_audit_sha256": "0e3d98cf68c694a58300e8c459b5eeb9bbfd796be0d8c0734a09de303d831101"
@@ -34,7 +40,7 @@
     {
       "scope": "exact_merged_mcp_calls_and_native_benchmark",
       "source_commit": "7479752df7d29272f3a08441b26a887b8bb388e0",
-      "source_commit_available_in_repository": true,
+      "source_commit_reachable_from_default_branch": true,
       "release_sha256": "6b2aa3220af27ac24a5c407be9df23ab82e203a878913d4a414868dc76d910a8",
       "report_ids": ["target_7a42c5e387e7abeea4f8"],
       "target_report_json_sha256": "92847f3820226913b8d3863be5facc73d0b92cf6bdca9634988c7431ca83487c",
@@ -44,13 +50,34 @@
     },
     {
       "scope": "native_collectors_and_adapter_models",
-      "candidate_commit": "053fc2c",
-      "candidate_commit_available_in_repository": false,
+      "candidate_commit": "053fc2c2ae0c15e625cc1565186b97084039d9a5",
+      "candidate_commit_reachable_from_default_branch": false,
+      "pull_request": 27,
+      "pull_ref": "refs/pull/27/head",
+      "pull_request_head_at_merge": "504faef1d438c3b5d1f97fff09a4a4a1fb7bc1ef",
       "merged_commit": "4861dcfb4f7c8a61aaff3dc9d199af1460b2f4b2",
       "release_sha256": "d342dd4ed374cfe1b0f2145dd55dbf7eb8ce9c38e77a901a4b102e554a574ef8",
       "report_ids": ["target_df68d477155fd8d55d75"],
       "target_report_json_sha256": "cb550695d5d3af42cc30ec55cab0500ff68b79b0f86bee8836438e27affadf77",
       "target_report_text_sha256": "45af6344f28da0aafb317370183ea33f71c5369d760710259fc9b10192e69f15"
+    },
+    {
+      "scope": "exact_merged_guardrails_runtime_regression",
+      "source_commit": "666df77385ece217c2fec2eca48a1007762b6d04",
+      "source_commit_reachable_from_default_branch": true,
+      "release_sha256": "33faf74629334318a15f63726baae233455206ab5379a0d7337406300a8b674f",
+      "report_ids": ["target_4a368ebd750533d7ddb6"],
+      "target_report_json_sha256": "7469aac4b1bc6ff788b5699008122b20ecc873aa1a2ecdab1f2e1a0186048a67",
+      "target_report_text_sha256": "e21bbb10bcca77ac0d9d009542f334b6f54ba508263498e6b3995cc748909162",
+      "native_result": "WARN_OPTIONAL_GIT_GO_ABSENT",
+      "runtime_checks": {
+        "collectors": "7/7",
+        "observations": 200,
+        "adapter_models": "2/2",
+        "mcp_servers": "8/8",
+        "structured_tool_calls": "39/39"
+      },
+      "claim_boundary": "native runtime regression only; does not promote M17 guarded LLM actions/path governance"
     }
   ]
 }

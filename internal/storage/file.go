@@ -256,12 +256,7 @@ func (s *FileStore) saveLocked(ctx context.Context, kind, id string, value any) 
 	if err := os.Rename(name, filepath.Join(dir, id+".json")); err != nil {
 		return err
 	}
-	d, err := os.Open(dir)
-	if err == nil {
-		_ = d.Sync()
-		_ = d.Close()
-	}
-	return nil
+	return syncDirectory(dir)
 }
 
 func (s *FileStore) loadLocked(kind, id string, out any) error {
@@ -329,6 +324,10 @@ func (s *FileStore) removePreparationLocked(taskID string) error {
 	if err := os.Remove(filepath.Join(dir, preparationID(taskID)+".json")); err != nil {
 		return err
 	}
+	return syncDirectory(dir)
+}
+
+func syncDirectory(dir string) error {
 	directory, err := os.Open(dir)
 	if err != nil {
 		return err

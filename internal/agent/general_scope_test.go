@@ -47,11 +47,15 @@ func TestDeriveGeneralReadScopeFromRequestAndSelectedResources(t *testing.T) {
 	if len(englishClauses) != 1 || englishClauses[0] != "/var/log" {
 		t.Fatalf("ASCII punctuation did not isolate a positive path clause: %+v", englishClauses)
 	}
-	for _, conjunction := range []string{"don't read /etc and read /var/log", "不要查 /etc 并检查 /var/log"} {
+	for _, conjunction := range []string{"don't read /etc and read /var/log", "不要查 /etc 并检查 /var/log", "不要检查 /etc 只检查 /var/log"} {
 		paths := requestScopePaths(conjunction)
 		if len(paths) != 1 || paths[0] != "/var/log" {
 			t.Fatalf("a positive conjunction clause remained negated for %q: %+v", conjunction, paths)
 		}
+	}
+	chineseExclusion := deriveGeneralReadScope("不要检查 /etc，只检查 /var/log", nil)
+	if chineseExclusion == nil || len(chineseExclusion.AuthorizedPaths) != 1 || chineseExclusion.AuthorizedPaths[0] != "/var/log" || len(chineseExclusion.ExcludedPaths) != 1 || chineseExclusion.ExcludedPaths[0] != "/etc" {
+		t.Fatalf("a common Chinese negation expanded the local scope: %+v", chineseExclusion)
 	}
 	for _, question := range []string{"Can you inspect /var/log?", "请检查 /var/log？", "inspect `/var/log`"} {
 		paths := requestScopePaths(question)

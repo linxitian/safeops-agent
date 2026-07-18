@@ -79,10 +79,16 @@ func readScopeMentionNegated(request string, mentionStart int) bool {
 		prefix = prefix[separator+1:]
 	}
 	positiveClauseEnd := -1
-	for _, marker := range []string{
-		" and read ", " and inspect ", " and check ", " but read ", " but inspect ", " but check ",
-		"并读取", "并查看", "并检查", "再读取", "再查看", "再检查", "然后读取", "然后查看", "然后检查", "但读取", "但查看", "但检查", "但是读取", "但是查看", "但是检查",
-	} {
+	positiveMarkers := []string{
+		" and read ", " and inspect ", " and check ", " and access ", " and do read ", " and do inspect ", " and do check ", " and do access ",
+		" but read ", " but inspect ", " but check ", " but access ", " but instead read ", " but instead inspect ", " but instead check ", " but instead access ",
+	}
+	for _, connector := range []string{"并", "再", "然后", "但", "但是", "只", "改为", "而是"} {
+		for _, verb := range []string{"看", "查", "检查", "读取", "访问"} {
+			positiveMarkers = append(positiveMarkers, connector+verb)
+		}
+	}
+	for _, marker := range positiveMarkers {
 		if index := strings.LastIndex(prefix, marker); index >= 0 && index+len(marker) > positiveClauseEnd {
 			positiveClauseEnd = index + len(marker)
 		}
@@ -90,10 +96,18 @@ func readScopeMentionNegated(request string, mentionStart int) bool {
 	if positiveClauseEnd >= 0 {
 		prefix = prefix[positiveClauseEnd:]
 	}
-	for _, marker := range []string{
-		"不要看", "不要查", "不要读取", "不要访问", "禁止查看", "禁止读取", "别看", "别查", "不包括", "排除",
-		"do not inspect", "do not read", "do not access", "don't inspect", "don't read", "don't access", "exclude", "except",
-	} {
+	negativeMarkers := []string{"不包括", "排除", "忽略", "exclude", "except", "skip", "ignore"}
+	for _, negation := range []string{"不要", "禁止", "别", "不"} {
+		for _, verb := range []string{"看", "查", "检查", "读取", "访问"} {
+			negativeMarkers = append(negativeMarkers, negation+verb)
+		}
+	}
+	for _, negation := range []string{"do not", "don't", "must not", "never"} {
+		for _, verb := range []string{"read", "inspect", "check", "access"} {
+			negativeMarkers = append(negativeMarkers, negation+" "+verb)
+		}
+	}
+	for _, marker := range negativeMarkers {
 		if strings.Contains(prefix, marker) {
 			return true
 		}

@@ -447,7 +447,14 @@ func TestManagedActionRequiresExplicitOperatorIntent(t *testing.T) {
 	if !managedActionIntentAllows("检查后重启 demo 服务", "service.restart") {
 		t.Fatal("explicit service restart request was rejected")
 	}
-	for _, request := range []string{"不要重启 demo 服务，只检查状态", "请说明是否需要重启，但不要执行", "check only; do not restart service"} {
+	for _, request := range []string{
+		"不要重启 demo 服务，只检查状态",
+		"别再重新启动 demo 服务",
+		"请说明是否需要重启，但不要执行",
+		"check only; do not restart service",
+		"never restart the service",
+		"without restarting the service",
+	} {
 		if managedActionIntentAllows(request, "service.restart") {
 			t.Fatalf("negated service request authorized a restart: %q", request)
 		}
@@ -458,7 +465,14 @@ func TestManagedActionRequiresExplicitOperatorIntent(t *testing.T) {
 	if !managedActionIntentAllows("确认后终止进程", "process.terminate") {
 		t.Fatal("explicit process termination request was rejected")
 	}
-	for _, request := range []string{"不要终止进程，只查看", "请给建议，不要执行", "do not kill process; only inspect"} {
+	for _, request := range []string{
+		"不要终止进程，只查看",
+		"禁止停止这个进程",
+		"请给建议，不要执行",
+		"do not kill process; only inspect",
+		"don't stop process",
+		"without terminating the process",
+	} {
 		if managedActionIntentAllows(request, "process.terminate") {
 			t.Fatalf("negated process request authorized termination: %q", request)
 		}

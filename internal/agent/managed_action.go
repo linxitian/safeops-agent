@@ -20,6 +20,8 @@ var (
 	managedServiceNoArgsSchema = json.RawMessage(`{"type":"object","properties":{},"additionalProperties":false}`)
 	managedProcessSchema       = json.RawMessage(`{"type":"object","properties":{"pid":{"type":"integer","minimum":2,"maximum":4194304}},"required":["pid"],"additionalProperties":false}`)
 	processTargetPattern       = regexp.MustCompile(`^pid:([1-9][0-9]{0,9}):start:([0-9]{1,20})$`)
+	managedServiceNegative     = regexp.MustCompile(`(?:不要|别|不得|禁止|无需|不需|不应|不能|不可)(?:再|去|执行)?(?:重启|重新启动)|(?:do not|don't|dont|never|must not|should not|cannot|can't|without)(?:\s+\w+){0,3}\s+restart(?:ing)?\b|(?:no|avoid)\s+(?:service\s+)?restart(?:ing)?\b`)
+	managedProcessNegative     = regexp.MustCompile(`(?:不要|别|不得|禁止|无需|不需|不应|不能|不可)(?:再|去|执行)?(?:终止|结束|停止|杀掉|杀死|杀)(?:该|这个|目标)?进程|(?:do not|don't|dont|never|must not|should not|cannot|can't|without)(?:\s+\w+){0,3}\s+(?:terminate|kill|stop)(?:ing)?\b|(?:no|avoid)\s+(?:process\s+)?(?:termination|killing|stopping)\b`)
 )
 
 func (o *Orchestrator) managedActionCapabilities() []llm.ManagedActionCapability {
@@ -234,12 +236,12 @@ func managedActionIntentAllows(request, tool string) bool {
 	}
 	switch tool {
 	case "service.restart":
-		if containsAny(request, "不要重启", "不重启", "无需重启", "禁止重启", "do not restart", "don't restart", "must not restart", "without restarting") {
+		if managedServiceNegative.MatchString(request) {
 			return false
 		}
 		return containsAny(request, "重启", "重新启动", "restart service", "restart the service", "service restart")
 	case "process.terminate":
-		if containsAny(request, "不要终止进程", "不终止进程", "不要结束进程", "不要停止进程", "禁止终止进程", "do not terminate", "don't terminate", "do not kill", "don't kill", "without terminating") {
+		if managedProcessNegative.MatchString(request) {
 			return false
 		}
 		return containsAny(request, "终止进程", "结束进程", "停止进程", "杀掉进程", "terminate process", "terminate the process", "kill process", "kill the process", "stop process", "stop the process")

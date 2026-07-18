@@ -75,6 +75,18 @@ A clean real Google Chrome session on the Ubuntu operator host traversed the tar
 
 Chrome recorded 39 responses, all HTTP 200, with no console warnings/errors, JavaScript exceptions, failed responses or loading failures. Every view had zero visible errors, zero horizontal overflow, zero unnamed visible DOM controls and zero unnamed Chrome Accessibility Tree controls. The audit JSON SHA-256 is `0e3d98cf68c694a58300e8c459b5eeb9bbfd796be0d8c0734a09de303d831101`; eight full-page PNG captures accompany the local evidence set. This evidence closes the prior systematic browser-traversal gap and promotes M13/B/S architecture to `TARGET_VERIFIED` for the installed target-served UI.
 
+## Exact merged release and native benchmark follow-up
+
+PR #23 merged the favicon/browser-audit changes as `7479752df7d29272f3a08441b26a887b8bb388e0`. A fresh release from that exact merge passed Go test/vet, the installer regression, 14 frontend tests, frontend lint/build and all 16 commands for linux/amd64 and linux/loong64 with `CGO_ENABLED=0`. The LoongArch64 archive SHA-256 was `6b2aa3220af27ac24a5c407be9df23ab82e203a878913d4a414868dc76d910a8`.
+
+That archive was checksum-verified and reinstalled on the official target. The installed server and favicon hashes matched the extracted bundle, both core services were active, the favicon returned HTTP 200 with `image/svg+xml`, CSP and `nosniff`, and the four fault-generator Lab units remained inactive. The configured Provider metadata remained readable without returning the key value.
+
+Installed `targetctl test` then ran as non-root `safeops`. Report `target_7a42c5e387e7abeea4f8` recorded 8/8 Server discovery/ping and one successful structured call for each of 39/39 Tools. It remained `WARN` only for optional target `git`/`go` command absence. The JSON and text report SHA-256 values were `92847f3820226913b8d3863be5facc73d0b92cf6bdca9634988c7431ca83487c` and `2c5d3f7175e64e7c75ee6cd4eaadb04a8625ab3d064098e00717ebf0f1c9aba6`.
+
+The installed `safeops-bench all` next ran as non-root `safeops` with the installed policy. All six suites passed and all 16 metrics were measured on `linux/loong64`: intent 7/7, ordered tool selection and completion 7/7, high-risk denial 5/5, unauthorized execution 0/5, safety false positives 0/5, RCA Top-1/Top-3 5/5, context resolution 6/6, approval resume 2/2, restart recovery 1/1, Trace coverage 12/12, Trace integrity 2/2 and real scoped temporary-file rollback 3/3. The 2,000-call native RCA sample measured a 0.025 ms mean and 0.036 ms P95 on this VM. JSON and Markdown SHA-256 values were `03538c50a122b44a71f2e6adcc651a104a32a2fcc0e124afba703a8813a9dc24` and `9dcbc364e112dc135b6d5b1725caf89bac3ea1076b4fb75ae2529051c707b78d`; all `safeops-bench-*` temporary directories were removed.
+
+The benchmark dangerous-target cases evaluate the production Guard only; execution cases use a DryRun handler, and real quarantine/restore is confined to generated temporary files. This evidence promotes M15 to `TARGET_VERIFIED` for controlled native execution. It does not turn fixture scores into real-world accuracy estimates, and the latency values are specific to this target environment.
+
 ## Status decisions and remaining gaps
 
 The audited native evidence promotes all 39 MCP read-tool calls/runtime, general provider interaction, safety/approval/executor/rollback, evidence/RCA, hash Trace, port/CPU/disk/file workflows, and Kylin/LoongArch64 compatibility to `TARGET_VERIFIED`.
@@ -84,5 +96,4 @@ Release/deployment is also `TARGET_VERIFIED` for checksum verification, install,
 The following remain below `TARGET_VERIFIED`:
 
 - the seven-Collector abstraction remains `TESTED` because `targetctl` does not individually execute every Collector adapter;
-- benchmarks remain `TESTED` on the development host and are not treated as target evidence;
 - target `git` and `go` commands remain absent, although they are not runtime dependencies.

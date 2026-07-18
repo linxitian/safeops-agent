@@ -21,7 +21,7 @@ Updated: 2026-07-18
 | M12 CPU/disk remediation demos | TARGET_VERIFIED | Official target CPU task completed 7/7 and disk/log task 8/8 with fresh snapshots, approvals, post-verification and no physical-space-reclaimed overclaim |
 | M13 Full Chinese UI | TARGET_VERIFIED | Installed `2b26de4` target console passed a real Chrome traversal of all eight views: 39 HTTP 200 responses, no browser/network errors or horizontal overflow, and no unnamed DOM/Accessibility interactive controls |
 | M14 Target compatibility | TARGET_VERIFIED | Audited reports identify Kylin V11/loong64, glibc 2.38 and systemd 255; 8/8 MCP discovery/ping and all 39 native tool calls pass, with WARN only for optional target `git`/`go` commands |
-| M15 Benchmarks | TESTED | Six `safeops-bench` suites, 16 measured metrics, fixed JSON/Markdown artifacts and full milestone gates pass on Ubuntu |
+| M15 Benchmarks | TARGET_VERIFIED | Installed non-root `safeops-bench all` passed all six suites and measured all 16 metrics natively on official Kylin V11/loong64; controlled-fixture and environment-specific latency caveats remain explicit |
 | M16 Release/deploy | TARGET_VERIFIED | Target checksum/install/start/health/reinstall pass; default uninstall removed binaries/config/units while 140 durable file hashes and 153 metadata rows stayed identical, then root-only environment/HMAC restoration preserved continuity |
 
 ## Actual changes in the current development stage
@@ -83,8 +83,8 @@ Updated: 2026-07-18
 | Disk/log-growth state machine | PASS; fresh post-stop file snapshot, separate L2/L1 approvals, quarantine verification and no physical-space-reclaimed overclaim |
 | Durable task concurrency/recovery | PASS; cross-store file locks, exclusive lease/fencing, expiry takeover, stale-write rejection and uncertain external action fail-closed |
 | Evidence/RCA/BM25 | PASS; graph stability, confidence components and retrieval provenance |
-| `safeops-bench all` | PASS; six suites and 16 measured metrics; report stores exact sample counts and methods |
-| Final target report checksums | PASS; original probe/test/doctor plus full-call test `target_ae6d4bbeb9ae7b8e5764` independently checksum-verified |
+| `safeops-bench all` | TARGET_VERIFIED; six suites and 16 measured metrics pass on official Kylin V11/loong64 as non-root `safeops`; report stores exact sample counts and methods |
+| Final target report checksums | PASS; original probe/test/doctor, full-call `target_ae6d4bbeb9ae7b8e5764` and exact-merge `target_7a42c5e387e7abeea4f8` independently checksum-verified |
 | Official Kylin V11 native checks | PASS with bounded WARN; loong64/Kylin/glibc/systemd/proc/statfs, 8/8 MCP and 39/39 native Tool calls pass; only optional `git`/`go` commands absent |
 | Credentialed compatible-provider runs | PASS; real MCP evidence, final three-resource follow-up scope and provider-deadline failure persistence verified |
 | Installed port/CPU/disk/file workflows | PASS; 10/10, 7/7, 8/8 and final four-turn quarantine/restore flows completed with `VALID` Traces |
@@ -122,7 +122,7 @@ Request: `查看 CPU 和内存。`
 - Port, CPU, disk/log and multi-turn file Demos are now `TARGET_VERIFIED`; exact task and Trace identifiers are in `docs/target-verification-2026-07-18.md`.
 - Kylin V11/LoongArch64 compatibility and release/deployment are `TARGET_VERIFIED`; the documented root-only backup is required only when operator configuration and approval-signing identity must survive the intentional `/etc` removal.
 - OS depth perception remains `TESTED` because not every Collector adapter has target execution evidence; the eight-view Chinese Web is now `TARGET_VERIFIED` by the installed target real-browser audit.
-- Benchmark/evaluation remains `TESTED` on controlled development-host suites and is not promoted using unrelated target evidence.
+- Benchmark/evaluation is now `TARGET_VERIFIED` for controlled native execution: all six installed suites and 16 metrics passed on Kylin/loong64; no fixture metric is presented as a real-world accuracy estimate.
 
 ## Currently complete demo scenarios
 
@@ -140,8 +140,8 @@ All named target workflows have `VALID` hash-chained Traces. The eight-view UI i
 
 - The target image lacks optional `git` and `go` commands. They are not release runtime dependencies, but their absence remains visible as bounded report warnings.
 - `make` is absent on the Ubuntu development host, but equivalent direct commands pass, so this does not block development.
-- Target execution evidence is still incomplete for every Collector adapter and for the benchmark suites.
+- Target execution evidence is still incomplete for every Collector adapter.
 
 ## Human action required now
 
-The next evidence priority is target execution of the remaining Collector adapters, followed by a bounded target benchmark run. Provider credentials, official target reports, Web traversal and data-preserving uninstall/reinstall are no longer blockers.
+The next evidence priority is target execution of the remaining Collector adapters. Provider credentials, official target reports, Web traversal, target Benchmark and data-preserving uninstall/reinstall are no longer blockers.

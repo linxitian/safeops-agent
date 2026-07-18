@@ -20,6 +20,78 @@ type allowedRoot struct {
 
 const secureResolveFlags = unix.RESOLVE_BENEATH | unix.RESOLVE_NO_MAGICLINKS | unix.RESOLVE_NO_SYMLINKS
 
+type openat2Func func(int, string, *unix.OpenHow) (int, error)
+
+func secureOpenAt(directoryFD int, relative string, flags uint64) (int, error) {
+	return secureOpenAtWith(directoryFD, relative, flags, unix.Openat2)
+}
+
+func secureOpenAtWith(directoryFD int, relative string, flags uint64, openat2 openat2Func) (int, error) {
+	if _, err := securePathComponents(relative); err != nil {
+		return -1, err
+	}
+	fd, err := openat2(directoryFD, relative, &unix.OpenHow{
+		Flags:   flags | unix.O_CLOEXEC | unix.O_NOFOLLOW,
+		Resolve: secureResolveFlags,
+	})
+	if err == nil || !errors.Is(err, unix.ENOSYS) {
+		return fd, err
+	}
+	return openatNoSymlinks(directoryFD, relative, flags)
+}
+
+func securePathComponents(relative string) ([]string, error) {
+	if relative == "" || relative == "." || filepath.IsAbs(relative) || filepath.Clean(relative) != relative {
+		return nil, errors.New("secure path must be a clean relative path")
+	}
+	components := strings.Split(relative, string(filepath.Separator))
+	for _, component := range components {
+		if component == "" || component == "." || component == ".." {
+			return nil, errors.New("secure path contains a forbidden component")
+		}
+	}
+	return components, nil
+}
+
+func openatNoSymlinks(rootFD int, relative string, flags uint64) (int, error) {
+	components, err := securePathComponents(relative)
+	if err != nil {
+		return -1, err
+	}
+	directoryFD := rootFD
+	ownedDirectoryFD := -1
+	for index, component := range components {
+		last := index == len(components)-1
+		openFlags := unix.O_PATH | unix.O_CLOEXEC | unix.O_NOFOLLOW | unix.O_DIRECTORY
+		if last {
+			openFlags = int(flags) | unix.O_CLOEXEC | unix.O_NOFOLLOW
+		}
+		fd, openErr := unix.Openat(directoryFD, component, openFlags, 0)
+		if ownedDirectoryFD >= 0 {
+			_ = unix.Close(ownedDirectoryFD)
+			ownedDirectoryFD = -1
+		}
+		if openErr != nil {
+			return -1, openErr
+		}
+		var stat unix.Stat_t
+		if statErr := unix.Fstat(fd, &stat); statErr != nil {
+			_ = unix.Close(fd)
+			return -1, statErr
+		}
+		if stat.Mode&unix.S_IFMT == unix.S_IFLNK {
+			_ = unix.Close(fd)
+			return -1, errors.New("symlink paths are not allowed")
+		}
+		if last {
+			return fd, nil
+		}
+		directoryFD = fd
+		ownedDirectoryFD = fd
+	}
+	return -1, errors.New("secure path has no components")
+}
+
 func (r *Reader) rootFor(path string) (allowedRoot, string, error) {
 	clean := filepath.Clean(strings.TrimSpace(path))
 	if !filepath.IsAbs(clean) {
@@ -61,10 +133,7 @@ func (r *Reader) openPath(path string, flags uint64) (*os.File, error) {
 		defer rootFile.Close()
 		return reopenPathFile(rootFile, int(flags))
 	}
-	fd, err := unix.Openat2(root.fd, relative, &unix.OpenHow{
-		Flags:   flags | unix.O_CLOEXEC | unix.O_NOFOLLOW,
-		Resolve: secureResolveFlags,
-	})
+	fd, err := secureOpenAt(root.fd, relative, flags)
 	if err != nil {
 		return nil, fmt.Errorf("securely open %s: %w", filepath.Clean(path), err)
 	}
@@ -143,10 +212,7 @@ func walkDirectory(ctx context.Context, directory *os.File, prefix string, paren
 			}
 			continue
 		}
-		fd, err := unix.Openat2(int(directory.Fd()), entry.Name(), &unix.OpenHow{
-			Flags:   unix.O_PATH | unix.O_CLOEXEC | unix.O_NOFOLLOW,
-			Resolve: secureResolveFlags,
-		})
+		fd, err := secureOpenAt(int(directory.Fd()), entry.Name(), unix.O_PATH)
 		if err != nil {
 			if errors.Is(err, unix.ELOOP) {
 				_, stop, visitErr := visit(relative, depth, nil, nil, true)

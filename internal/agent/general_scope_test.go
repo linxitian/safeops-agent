@@ -47,6 +47,12 @@ func TestDeriveGeneralReadScopeFromRequestAndSelectedResources(t *testing.T) {
 	if len(englishClauses) != 1 || englishClauses[0] != "/var/log" {
 		t.Fatalf("ASCII punctuation did not isolate a positive path clause: %+v", englishClauses)
 	}
+	for _, conjunction := range []string{"don't read /etc and read /var/log", "不要查 /etc 并检查 /var/log"} {
+		paths := requestScopePaths(conjunction)
+		if len(paths) != 1 || paths[0] != "/var/log" {
+			t.Fatalf("a positive conjunction clause remained negated for %q: %+v", conjunction, paths)
+		}
+	}
 	for _, question := range []string{"Can you inspect /var/log?", "请检查 /var/log？", "inspect `/var/log`"} {
 		paths := requestScopePaths(question)
 		if len(paths) != 1 || paths[0] != "/var/log" {
@@ -68,6 +74,10 @@ func TestDeriveGeneralReadScopeFromRequestAndSelectedResources(t *testing.T) {
 	hostWide := llm.Decision{Kind: llm.DecisionTool, ServerID: "diagnostic", Tool: "diagnostic.build_snapshot", Arguments: map[string]any{"path": "/var/log/messages"}}
 	if violation := validateGeneralReadScope(excluded, hostWide); violation == nil || violation.Code != "REQUEST_READ_SCOPE_TOOL_MISMATCH" {
 		t.Fatalf("a host-wide diagnostic tool was accepted for a file-scoped request: %+v", violation)
+	}
+	rootDiscovery := llm.Decision{Kind: llm.DecisionTool, ServerID: "file", Tool: "file.list_roots", Arguments: map[string]any{}}
+	if violation := validateGeneralReadScope(excluded, rootDiscovery); violation == nil || violation.Code != "REQUEST_READ_SCOPE_TOOL_MISMATCH" {
+		t.Fatalf("global root discovery was accepted for an explicit file scope: %+v", violation)
 	}
 	if pathWithinScope("/var/lib/safeops/lab", "/var/lib/safeops/lab-escape/log") {
 		t.Fatal("lexical sibling escaped the authorized scope")

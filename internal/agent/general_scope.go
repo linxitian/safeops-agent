@@ -78,6 +78,18 @@ func readScopeMentionNegated(request string, mentionStart int) bool {
 	if separator := strings.LastIndexAny(prefix, ",.!?:，。；;！？：\n"); separator >= 0 {
 		prefix = prefix[separator+1:]
 	}
+	positiveClauseEnd := -1
+	for _, marker := range []string{
+		" and read ", " and inspect ", " and check ", " but read ", " but inspect ", " but check ",
+		"并读取", "并查看", "并检查", "再读取", "再查看", "再检查", "然后读取", "然后查看", "然后检查", "但读取", "但查看", "但检查", "但是读取", "但是查看", "但是检查",
+	} {
+		if index := strings.LastIndex(prefix, marker); index >= 0 && index+len(marker) > positiveClauseEnd {
+			positiveClauseEnd = index + len(marker)
+		}
+	}
+	if positiveClauseEnd >= 0 {
+		prefix = prefix[positiveClauseEnd:]
+	}
 	for _, marker := range []string{
 		"不要看", "不要查", "不要读取", "不要访问", "禁止查看", "禁止读取", "别看", "别查", "不包括", "排除",
 		"do not inspect", "do not read", "do not access", "don't inspect", "don't read", "don't access", "exclude", "except",
@@ -176,12 +188,9 @@ func validateGeneralReadScope(scope *generalReadScope, decision llm.Decision) *r
 	}
 	pathValue, hasPath := decision.Arguments["path"]
 	if !hasPath {
-		if decision.ServerID == "file" && decision.Tool == "file.list_roots" {
-			return nil
-		}
 		return &readScopeViolation{
 			Code:    "REQUEST_READ_SCOPE_PATH_REQUIRED",
-			Summary: "文件范围任务只能选择携带受权 path 的只读工具；file.list_roots 仅可用于发现根目录",
+			Summary: "文件范围任务只能选择携带受权 path 的只读工具",
 			Tool:    tool,
 		}
 	}
@@ -220,7 +229,7 @@ func validateGeneralReadScope(scope *generalReadScope, decision llm.Decision) *r
 
 func fileScopedReadTool(tool string) bool {
 	switch tool {
-	case "file/file.list_roots", "file/file.stat", "file/file.list_directory", "file/file.sha256", "file/file.find_large", "system/system.get_disk_usage", "diagnostic/diagnostic.disk_pressure":
+	case "file/file.stat", "file/file.list_directory", "file/file.sha256", "file/file.find_large", "system/system.get_disk_usage", "diagnostic/diagnostic.disk_pressure":
 		return true
 	default:
 		return false

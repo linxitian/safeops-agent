@@ -151,15 +151,15 @@ func (o *Orchestrator) Run(ctx context.Context, taskID, sessionID, request strin
 		err = errors.New("in-flight privileged action requires manual reconciliation after worker loss; automatic re-execution is forbidden")
 		return t, err
 	}
-	if detectPortRecovery(request) {
+	if detectPortRecovery(request) && fixedLabReadScopeCompatible(request, demoLabRoot) {
 		t, err = o.runPortRecovery(ctx, t, emit)
 		return t, err
 	}
-	if detectCPURecovery(request) {
+	if detectCPURecovery(request) && fixedLabReadScopeCompatible(request, demoLabRoot) {
 		t, err = o.runCPURecovery(ctx, t, emit)
 		return t, err
 	}
-	if detectDiskRecovery(request) {
+	if detectDiskRecovery(request) && fixedLabReadScopeCompatible(request, demoLabRoot, demoGrowthPath) {
 		t, err = o.runDiskRecovery(ctx, t, emit)
 		return t, err
 	}

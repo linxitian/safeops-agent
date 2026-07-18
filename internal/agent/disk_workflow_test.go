@@ -23,6 +23,26 @@ import (
 	"safeops-agent/internal/trace"
 )
 
+func TestFixedLabWorkflowRejectsConflictingExplicitPaths(t *testing.T) {
+	for _, request := range []string{
+		"repair disk full under /var/log",
+		"修复 /var/lib/safeops/lab/other.log 日志占用",
+		"修复磁盘占用，但不要检查 /var/lib/safeops/lab/config",
+	} {
+		if fixedLabReadScopeCompatible(request, demoLabRoot, demoGrowthPath) {
+			t.Fatalf("conflicting explicit path routed to the fixed Lab workflow: %q", request)
+		}
+	}
+	for _, request := range []string{
+		"SafeOps Lab 日志异常增长，帮我处理。",
+		"修复 /var/lib/safeops/lab/growth.log 日志占用",
+	} {
+		if !fixedLabReadScopeCompatible(request, demoLabRoot, demoGrowthPath) {
+			t.Fatalf("the fixed Lab target was incorrectly rejected: %q", request)
+		}
+	}
+}
+
 func TestDiskWorkflowStopsWriterQuarantinesAndDoesNotClaimPhysicalSpace(t *testing.T) {
 	ctx := context.Background()
 	store, err := storage.NewFileStore(t.TempDir())

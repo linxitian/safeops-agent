@@ -47,6 +47,65 @@ func TestOpenAICompatibleDecisionContract(t *testing.T) {
 	}
 }
 
+func TestOpenAICompatibleRepairsMalformedDecisionOnce(t *testing.T) {
+	requests := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requests++
+		var request struct {
+			Messages []chatMessage `json:"messages"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
+			t.Fatal(err)
+		}
+		content := `{"kind":"tool","decision_summary":"读取磁盘占用","server_id":"system","tool":"system.get_disk_usage","arguments":{"path":"/var/log"},"expected_observaton":"目录占用"}`
+		if requests == 2 {
+			if len(request.Messages) != 3 || request.Messages[2].Role != "user" || !strings.Contains(request.Messages[2].Content, `unknown field "expected_observaton"`) {
+				t.Fatalf("repair feedback missing or unsafe: %+v", request.Messages)
+			}
+			content = `{"kind":"tool","decision_summary":"读取磁盘占用","server_id":"system","tool":"system.get_disk_usage","arguments":{"path":"/var/log"},"expected_observation":"目录占用"}`
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{"choices": []any{map[string]any{"message": map[string]any{"role": "assistant", "content": content}}}})
+	}))
+	defer server.Close()
+	provider, _ := NewOpenAICompatible(Config{BaseURL: server.URL, APIKey: "key", Model: "model", Client: server.Client()})
+	decision, err := provider.Decide(context.Background(), DecisionRequest{Objective: "修复 /var/log 磁盘占用问题"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if requests != 2 || decision.ExpectedObservation != "目录占用" {
+		t.Fatalf("repair result = (%d, %+v), want one retry and corrected decision", requests, decision)
+	}
+}
+
+func TestOpenAICompatibleStopsAfterOneFailedRepair(t *testing.T) {
+	requests := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		requests++
+		content := `{"kind":"tool","decision_summary":"x","server_id":"system","tool":"system.get_disk_usage","arguments":{},"unexpected":true}`
+		_ = json.NewEncoder(w).Encode(map[string]any{"choices": []any{map[string]any{"message": map[string]any{"role": "assistant", "content": content}}}})
+	}))
+	defer server.Close()
+	provider, _ := NewOpenAICompatible(Config{BaseURL: server.URL, APIKey: "key", Model: "model", Client: server.Client()})
+	_, err := provider.Decide(context.Background(), DecisionRequest{Objective: "test"})
+	if err == nil || requests != 2 || !strings.Contains(err.Error(), "after one repair attempt") {
+		t.Fatalf("failed repair result = (%d, %v), want two requests and final rejection", requests, err)
+	}
+}
+
+func TestOpenAICompatibleDoesNotRepairProviderFailure(t *testing.T) {
+	requests := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		requests++
+		w.WriteHeader(http.StatusBadGateway)
+	}))
+	defer server.Close()
+	provider, _ := NewOpenAICompatible(Config{BaseURL: server.URL, APIKey: "key", Model: "model", Client: server.Client()})
+	_, err := provider.Decide(context.Background(), DecisionRequest{Objective: "test"})
+	if err == nil || requests != 1 {
+		t.Fatalf("provider failure result = (%d, %v), want no repair retry", requests, err)
+	}
+}
+
 func TestDecisionSystemPromptConstrainsAmbiguousFollowupsToSelectedResources(t *testing.T) {
 	if !strings.Contains(decisionSystemPrompt, "selected_resources is an ordered durable scope") || !strings.Contains(decisionSystemPrompt, "ambiguous follow-up") {
 		t.Fatal("system prompt does not define durable follow-up scope")

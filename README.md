@@ -114,7 +114,7 @@ npm --prefix web run dev
 查看 CPU 和内存。
 ```
 
-未配置 LLM 时，Agent 提供确定性的 CPU/内存只读纵切片。配置 Provider 后，通用 Runtime 只能选择 Registry 实际发现的 L0 Tool，并在本地校验 JSON Schema；每个 Tool Result 都重新进入 Runtime。模型只能在用户明确要求对应动作、相关 MCP 成功证据包含精确结构化目标身份后，申请 `service.restart` 或 `process.terminate` 两种固定受管动作；本地策略、目标快照和人工审批仍独立生效。写动作准备还需要显式提供执行器配置和 0600 HMAC secret，默认关闭。
+未配置 LLM 时，Agent 提供确定性的 CPU/内存只读纵切片。配置 Provider 后，通用 Runtime 只能选择 Registry 实际发现的 L0 Tool，并在本地校验 JSON Schema；每个 Tool Result 都重新进入 Runtime。Provider 已成功返回但决策 JSON 不符合契约时会携带有界错误摘要纠正一次，第二次仍无效则失败，网络与 HTTP 错误不会由该机制重试。模型只能在用户明确要求对应动作、相关 MCP 成功证据包含精确结构化目标身份后，申请 `service.restart` 或 `process.terminate` 两种固定受管动作；本地策略、目标快照和人工审批仍独立生效。写动作准备还需要显式提供执行器配置和 0600 HMAC secret，默认关闭。
 
 ## 配置与环境变量
 

@@ -15,8 +15,10 @@ import (
 )
 
 const (
-	maxResponseBytes     = 1 << 20
-	defaultClientTimeout = 3 * time.Minute
+	maxResponseBytes           = 1 << 20
+	defaultClientTimeout       = 3 * time.Minute
+	maxDecisionRepairAttempts  = 1
+	maxDecisionRepairErrorText = 512
 )
 
 var ErrNotConfigured = errors.New("OpenAI-compatible provider is not configured")
@@ -66,63 +68,98 @@ func (p *OpenAICompatible) Decide(ctx context.Context, input DecisionRequest) (D
 	if strings.TrimSpace(input.Objective) == "" {
 		return Decision{}, errors.New("decision objective is required")
 	}
-	payload := struct {
-		Model          string         `json:"model"`
-		Messages       []chatMessage  `json:"messages"`
-		ResponseFormat map[string]any `json:"response_format"`
-	}{Model: p.model, ResponseFormat: map[string]any{"type": "json_object"}}
 	requestJSON, err := json.Marshal(input)
 	if err != nil {
 		return Decision{}, err
 	}
-	payload.Messages = []chatMessage{
+	messages := []chatMessage{
 		{Role: "system", Content: decisionSystemPrompt},
 		{Role: "user", Content: string(requestJSON)},
 	}
+	for attempt := 0; attempt <= maxDecisionRepairAttempts; attempt++ {
+		content, err := p.complete(ctx, messages)
+		if err != nil {
+			return Decision{}, err
+		}
+		decision, contractErr := decodeAndValidateDecision(content)
+		if contractErr == nil {
+			return decision, nil
+		}
+		if attempt == maxDecisionRepairAttempts {
+			return Decision{}, fmt.Errorf("structured decision rejected after one repair attempt: %w", contractErr)
+		}
+		messages = append(messages, chatMessage{Role: "user", Content: decisionRepairPrompt(contractErr)})
+	}
+	return Decision{}, errors.New("structured decision repair exhausted")
+}
+
+func (p *OpenAICompatible) complete(ctx context.Context, messages []chatMessage) (string, error) {
+	payload := struct {
+		Model          string         `json:"model"`
+		Messages       []chatMessage  `json:"messages"`
+		ResponseFormat map[string]any `json:"response_format"`
+	}{Model: p.model, Messages: messages, ResponseFormat: map[string]any{"type": "json_object"}}
 	body, err := json.Marshal(payload)
 	if err != nil {
-		return Decision{}, err
+		return "", err
 	}
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, p.endpoint, bytes.NewReader(body))
 	if err != nil {
-		return Decision{}, err
+		return "", err
 	}
 	req.Header.Set("Authorization", "Bearer "+p.apiKey)
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Accept", "application/json")
 	response, err := p.client.Do(req)
 	if err != nil {
-		return Decision{}, fmt.Errorf("provider request: %w", err)
+		return "", fmt.Errorf("provider request: %w", err)
 	}
 	defer response.Body.Close()
 	limited := io.LimitReader(response.Body, maxResponseBytes+1)
 	responseBody, err := io.ReadAll(limited)
 	if err != nil {
-		return Decision{}, fmt.Errorf("read provider response: %w", err)
+		return "", fmt.Errorf("read provider response: %w", err)
 	}
 	if len(responseBody) > maxResponseBytes {
-		return Decision{}, errors.New("provider response exceeds 1 MiB")
+		return "", errors.New("provider response exceeds 1 MiB")
 	}
 	if response.StatusCode < 200 || response.StatusCode >= 300 {
 		// Do not include a provider body: it can contain reflected prompts or secrets.
-		return Decision{}, fmt.Errorf("provider returned HTTP %d", response.StatusCode)
+		return "", fmt.Errorf("provider returned HTTP %d", response.StatusCode)
 	}
 	var completion chatCompletion
 	decoder := json.NewDecoder(bytes.NewReader(responseBody))
 	if err := decoder.Decode(&completion); err != nil {
-		return Decision{}, fmt.Errorf("decode provider response: %w", err)
+		return "", fmt.Errorf("decode provider response: %w", err)
 	}
 	if len(completion.Choices) == 0 {
-		return Decision{}, errors.New("provider returned no choices")
+		return "", errors.New("provider returned no choices")
 	}
-	decision, err := decodeStructuredDecision(completion.Choices[0].Message.Content)
+	return completion.Choices[0].Message.Content, nil
+}
+
+func decodeAndValidateDecision(content string) (Decision, error) {
+	decision, err := decodeStructuredDecision(content)
 	if err != nil {
-		return Decision{}, fmt.Errorf("decode structured decision: %w", err)
+		return Decision{}, fmt.Errorf("decode: %w", err)
 	}
 	if err := validateDecision(decision); err != nil {
-		return Decision{}, err
+		return Decision{}, fmt.Errorf("validate: %w", err)
 	}
 	return decision, nil
+}
+
+func decisionRepairPrompt(contractErr error) string {
+	detail := strings.Map(func(r rune) rune {
+		if r < 0x20 || r == 0x7f {
+			return ' '
+		}
+		return r
+	}, contractErr.Error())
+	if len(detail) > maxDecisionRepairErrorText {
+		detail = detail[:maxDecisionRepairErrorText]
+	}
+	return "The previous response was rejected by the JSON decision contract: " + detail + ". Return one corrected JSON object only. Use exactly the allowed field names and shapes from the system message; do not add markdown or explanation."
 }
 
 type chatMessage struct {

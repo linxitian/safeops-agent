@@ -41,7 +41,7 @@ Updated: 2026-07-18
 - Integrated Action Proposal + Static/Intent/Risk events into each MCP call; the two-tool slice now records 22 Trace events.
 - Implemented durable exact-bound approval records, HMAC ActionEnvelope, nonce replay prevention, executor-side policy/intent/risk/scope/target revalidation and a Unix-socket dry-run executor.
 - Implemented deterministic Evidence Graph, D1-D3 RCA confidence formula and pure-Go BM25 knowledge retrieval with source/score/matched-term provenance; connected it to port-conflict diagnosis.
-- Added an OpenAI-compatible structured-output Provider and a bounded general Agent loop with discovered-schema validation, Tool Result re-entry, 12-iteration/30-call limits, replan bounds and no-progress detection.
+- Added an OpenAI-compatible structured-output Provider and a bounded general Agent loop with discovered-schema validation, Tool Result re-entry, 12-iteration/30-call limits, replan bounds and no-progress detection; a contract-invalid model response receives exactly one bounded correction attempt while transport/HTTP failures are not retried.
 - Added model requests for only the fixed `service.restart` and `process.terminate` actions; explicit operator intent and exact successful structured MCP identity evidence are checked locally before policy, snapshot and approval preparation.
 - Added separate read-only browser and managed-write roots, a graphical directory browser and non-root child-directory creation confined by `os.Root`; deployment retains both `/home` and `/var/lib/safeops/lab` write roots so existing target Demos remain in scope.
 - Added bounded, redacted durable Session context for ambiguous general follow-ups and constrained every provider request by the persisted Agent deadline.
@@ -94,6 +94,7 @@ Updated: 2026-07-18
 | Final target report checksums | PASS; original probe/test/doctor, full-call `target_ae6d4bbeb9ae7b8e5764`, exact-merge `target_7a42c5e387e7abeea4f8`, Collector follow-up `target_df68d477155fd8d55d75` and exact PR #30 merge regression `target_4a368ebd750533d7ddb6` independently checksum-verified |
 | Official Kylin V11 native checks | PASS with bounded WARN; loong64/Kylin/glibc/systemd/proc/statfs, 8/8 MCP, 39/39 native Tool calls, 7/7 Collectors and both adapter models pass; only optional `git`/`go` commands absent |
 | Credentialed compatible-provider runs | PASS; real MCP evidence, final three-resource follow-up scope and provider-deadline failure persistence verified |
+| Structured-decision recovery | TESTED; strict decoding remains authoritative, one malformed-response correction is bounded to a single retry, repeated invalid output fails, and provider/HTTP failures are not retried |
 | Installed port/CPU/disk/file workflows | PASS; 10/10, 7/7, 8/8 and final four-turn quarantine/restore flows completed with `VALID` Traces |
 | M16 release pipeline | PASS locally; tests/vet/frontend plus 16 amd64 and 16 loong64 commands, fixed tar.gz and outer SHA256 produced |
 | Release artifact verification | PASS; outer hash, 39 bundle-file hashes, 16 static LoongArch ELF files and six staged systemd units verified |

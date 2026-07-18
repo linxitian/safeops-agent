@@ -51,7 +51,7 @@ func TestDecisionSystemPromptConstrainsAmbiguousFollowupsToSelectedResources(t *
 	if !strings.Contains(decisionSystemPrompt, "selected_resources is an ordered durable scope") || !strings.Contains(decisionSystemPrompt, "ambiguous follow-up") {
 		t.Fatal("system prompt does not define durable follow-up scope")
 	}
-	if !strings.Contains(decisionSystemPrompt, "managed_action is not command execution") || !strings.Contains(decisionSystemPrompt, "shell.execute") {
+	if !strings.Contains(decisionSystemPrompt, "managed_action is not command execution") || !strings.Contains(decisionSystemPrompt, "direct shell, terminal, command, or bash execution") {
 		t.Fatal("system prompt does not define managed action command guardrails")
 	}
 }

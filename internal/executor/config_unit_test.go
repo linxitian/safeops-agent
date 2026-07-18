@@ -156,8 +156,18 @@ func TestConfigManagerRejectsPathBrowserSymlinkEscapes(t *testing.T) {
 	if _, err := manager.BrowsePath(readEscape, "read", 100); err == nil {
 		t.Fatal("read browser followed a symlink outside its configured root")
 	}
-	if _, err := manager.BrowsePath(writeEscape, "write", 100); err == nil {
-		t.Fatal("write browser followed a symlink outside its configured root")
+	if browser, err := manager.BrowsePath(writeEscape, "write", 100); err == nil {
+		t.Fatalf("write browser treated an existing escape symlink as a missing path: %+v", browser)
+	}
+	if browser, err := manager.BrowsePath(filepath.Join(writeEscape, "missing"), "write", 100); err == nil {
+		t.Fatalf("write browser treated a missing path through an escape symlink as safely missing: %+v", browser)
+	}
+	missing, err := manager.BrowsePath(filepath.Join(writeRoot, "missing"), "write", 100)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !missing.WriteRootMissing || missing.CanCreateChild {
+		t.Fatalf("genuinely missing bounded path was not reported safely: %+v", missing)
 	}
 	if _, err := manager.CreateDirectory(writeEscape, "created-outside"); err == nil {
 		t.Fatal("directory creation followed a symlink outside its configured root")

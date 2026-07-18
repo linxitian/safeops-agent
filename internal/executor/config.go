@@ -243,7 +243,7 @@ func (m *ConfigManager) BrowsePath(path, mode string, limit int) (PathBrowser, e
 	}
 	info, err := root.Stat(relative)
 	if err != nil {
-		if mode == "write" && os.IsNotExist(err) {
+		if mode == "write" && os.IsNotExist(err) && boundedPathMissing(root, relative) {
 			browser.WriteRootMissing = true
 			return browser, nil
 		}
@@ -544,6 +544,27 @@ func openBoundedRoot(path string, roots []string) (*os.Root, string, error) {
 		return nil, "", err
 	}
 	return root, relative, nil
+}
+
+func boundedPathMissing(root *os.Root, relative string) bool {
+	current := filepath.Clean(relative)
+	for {
+		info, err := root.Lstat(current)
+		if err == nil {
+			if info.Mode()&os.ModeSymlink != 0 {
+				info, err = root.Stat(current)
+			}
+			return err == nil && info.IsDir()
+		}
+		if !os.IsNotExist(err) {
+			return false
+		}
+		parent := filepath.Dir(current)
+		if parent == current {
+			return false
+		}
+		current = parent
+	}
 }
 
 func safeDirectoryName(name string) bool {

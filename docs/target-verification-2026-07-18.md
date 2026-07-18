@@ -87,13 +87,22 @@ The installed `safeops-bench all` next ran as non-root `safeops` with the instal
 
 The benchmark dangerous-target cases evaluate the production Guard only; execution cases use a DryRun handler, and real quarantine/restore is confined to generated temporary files. This evidence promotes M15 to `TARGET_VERIFIED` for controlled native execution. It does not turn fixture scores into real-world accuracy estimates, and the latency values are specific to this target environment.
 
+## Native Collector and adapter follow-up
+
+Issue #26 tracked the missing target execution evidence for the seven production Collectors. Candidate runtime `053fc2c` passed Go test/vet, the installer environment regression, 14 frontend tests, frontend lint/build and all 16 commands for linux/amd64 and linux/loong64 with `CGO_ENABLED=0`. Its LoongArch64 archive SHA-256 was `d342dd4ed374cfe1b0f2145dd55dbf7eb8ce9c38e77a901a4b102e554a574ef8`.
+
+The first native candidate correctly failed because the allowlisted Lab configuration directory was empty: six Collectors and both adapters passed, while `config_change` returned no valid observations. The follow-up kept empty results fail-closed, added a bounded SafeFS snapshot for a single allowlisted file, and pointed the production configuration Collector at the installed, non-secret `/etc/safeops/mcp_servers.yaml` manifest. It reads only metadata and a bounded hash in memory; neither the hash nor any Observation value is written to the target report.
+
+After checksum verification and reinstall, `/opt/safeops/bin/targetctl test` ran as non-root `safeops`. Report `target_df68d477155fd8d55d75` recorded the exact 7/7 unique Collector plan, 7/7 completed, 195 observations, zero issues and no output/issue truncation. Per-Collector counts passed for procfs (29), disk (47), network (36), systemd (14), journal (20), system configuration (46) and configuration change (3). The Prometheus model produced 62 numeric samples and skipped 133 non-numeric observations; the OpenTelemetry model produced 62 metrics and 133 bounded logs. Neither adapter truncated.
+
+The same report repeated 8/8 MCP health and 39/39 structured native Tool calls. Its JSON and text SHA-256 values were `cb550695d5d3af42cc30ec55cab0500ff68b79b0f86bee8836438e27affadf77` and `45af6344f28da0aafb317370183ea33f71c5369d760710259fc9b10192e69f15`. A field-pattern audit found no persisted Observation value, configuration hash or credential field. The server health endpoint returned HTTP 200, both core units were active and all four fault-generator Lab units remained inactive.
+
+The report remained `WARN` only because the target lacks optional `git` and `go`, and retained `target_verified=false` by design. Maintainer review of the exact release identity, first fail-closed run, corrected native run and count-only artifact promotes M1 to `TARGET_VERIFIED`. This evidence covers in-process Prometheus/OpenTelemetry adaptation; no external telemetry backend was deployed or claimed.
+
 ## Status decisions and remaining gaps
 
-The audited native evidence promotes all 39 MCP read-tool calls/runtime, general provider interaction, safety/approval/executor/rollback, evidence/RCA, hash Trace, port/CPU/disk/file workflows, and Kylin/LoongArch64 compatibility to `TARGET_VERIFIED`.
+The audited native evidence promotes all seven Collectors and both in-process adapter models, all 39 MCP read-tool calls/runtime, general provider interaction, safety/approval/executor/rollback, evidence/RCA, hash Trace, port/CPU/disk/file workflows, and Kylin/LoongArch64 compatibility to `TARGET_VERIFIED` for their stated scopes.
 
 Release/deployment is also `TARGET_VERIFIED` for checksum verification, install, start, health, repeated reinstall, default data-preserving uninstall and configuration-continuity restore. The uninstaller intentionally removes `/etc/safeops`; retaining provider and approval-signing identity requires the root-only procedure in `deploy/README.md`.
 
-The following remain below `TARGET_VERIFIED`:
-
-- the seven-Collector abstraction remains `TESTED` because `targetctl` does not individually execute every Collector adapter;
-- target `git` and `go` commands remain absent, although they are not runtime dependencies.
+The target `git` and `go` commands remain absent, although they are not runtime dependencies. External Prometheus/OpenTelemetry deployment and the Registry periodic-health/dependency/version-history loop remain future work and are not implied by the verified in-process adapter run.

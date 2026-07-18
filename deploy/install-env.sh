@@ -133,12 +133,6 @@ safeops_validate_version_source() {
     echo "SafeOps version source must be a regular non-symlink file" >&2
     return 1
   fi
-  if [[ -e "$version_destination" || -L "$version_destination" ]]; then
-    if [[ ! -f "$version_destination" || -L "$version_destination" ]]; then
-      echo "SafeOps version destination must be a regular non-symlink file" >&2
-      return 1
-    fi
-  fi
 
   local version_lines=()
   mapfile -t version_lines < "$version_source"

@@ -51,6 +51,9 @@ func TestDecisionSystemPromptConstrainsAmbiguousFollowupsToSelectedResources(t *
 	if !strings.Contains(decisionSystemPrompt, "selected_resources is an ordered durable scope") || !strings.Contains(decisionSystemPrompt, "ambiguous follow-up") {
 		t.Fatal("system prompt does not define durable follow-up scope")
 	}
+	if !strings.Contains(decisionSystemPrompt, "managed_action is not command execution") || !strings.Contains(decisionSystemPrompt, "shell.execute") {
+		t.Fatal("system prompt does not define managed action command guardrails")
+	}
 }
 
 func TestOpenAICompatibleUsesExtendedDefaultTimeout(t *testing.T) {
@@ -83,11 +86,28 @@ func TestDecodeStructuredDecisionRejectsAmbiguousAnswerAlias(t *testing.T) {
 	}
 }
 
+func TestDecodeStructuredDecisionAcceptsManagedActionRequest(t *testing.T) {
+	decision, err := decodeStructuredDecision(`{"kind":"action_request","decision_summary":"申请重启服务","tool":"service.restart","target":{"type":"service","id":"safeops-demo-web.service"},"arguments":{},"expected_observation":"服务恢复 active"}`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := validateDecision(decision); err != nil {
+		t.Fatal(err)
+	}
+	if decision.Kind != DecisionActionRequest || decision.ServerID != "" || decision.Target.ID != "safeops-demo-web.service" {
+		t.Fatalf("managed action was not decoded: %+v", decision)
+	}
+}
+
 func TestOpenAICompatibleRejectsMalformedOrUnsafeDecision(t *testing.T) {
 	for name, content := range map[string]string{
-		"unknown field": `{"kind":"tool","decision_summary":"x","server_id":"x","tool":"x","arguments":{},"shell":"rm -rf /"}`,
-		"unknown kind":  `{"kind":"shell","decision_summary":"x","final_answer":"x"}`,
-		"mixed final":   `{"kind":"final","decision_summary":"x","tool":"system.get_overview","final_answer":"x"}`,
+		"unknown field":           `{"kind":"tool","decision_summary":"x","server_id":"x","tool":"x","arguments":{},"shell":"rm -rf /"}`,
+		"unknown kind":            `{"kind":"shell","decision_summary":"x","final_answer":"x"}`,
+		"mixed final":             `{"kind":"final","decision_summary":"x","tool":"system.get_overview","final_answer":"x"}`,
+		"action with server":      `{"kind":"action_request","decision_summary":"x","server_id":"system","tool":"service.restart","target":{"type":"service","id":"safeops-demo-web.service"},"arguments":{}}`,
+		"action missing target":   `{"kind":"action_request","decision_summary":"x","tool":"service.restart","arguments":{}}`,
+		"action command field":    `{"kind":"action_request","decision_summary":"x","tool":"service.restart","target":{"type":"service","id":"safeops-demo-web.service"},"arguments":{},"command":"systemctl restart safeops-demo-web"}`,
+		"tool with action target": `{"kind":"tool","decision_summary":"x","server_id":"system","tool":"system.get_overview","target":{"type":"host","id":"local"},"arguments":{}}`,
 	} {
 		t.Run(name, func(t *testing.T) {
 			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {

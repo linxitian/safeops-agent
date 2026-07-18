@@ -8,9 +8,10 @@ import (
 type DecisionKind string
 
 const (
-	DecisionTool   DecisionKind = "tool"
-	DecisionFinal  DecisionKind = "final"
-	DecisionReplan DecisionKind = "replan"
+	DecisionTool          DecisionKind = "tool"
+	DecisionActionRequest DecisionKind = "action_request"
+	DecisionFinal         DecisionKind = "final"
+	DecisionReplan        DecisionKind = "replan"
 )
 
 type ToolCapability struct {
@@ -18,6 +19,28 @@ type ToolCapability struct {
 	Name        string          `json:"name"`
 	Description string          `json:"description"`
 	InputSchema json.RawMessage `json:"input_schema"`
+}
+
+type ManagedActionCapability struct {
+	Name              string          `json:"name"`
+	Description       string          `json:"description"`
+	TargetType        string          `json:"target_type"`
+	InputSchema       json.RawMessage `json:"input_schema"`
+	ApprovalRequired  bool            `json:"approval_required"`
+	Reversible        bool            `json:"reversible"`
+	RollbackStrategy  string          `json:"rollback_strategy,omitempty"`
+	RequiresEvidence  bool            `json:"requires_evidence"`
+	ExecutionBoundary string          `json:"execution_boundary"`
+}
+
+type ActionTarget struct {
+	Type        string `json:"type"`
+	ID          string `json:"id"`
+	Criticality string `json:"criticality,omitempty"`
+}
+
+func (t ActionTarget) Empty() bool {
+	return t.Type == "" && t.ID == "" && t.Criticality == ""
 }
 
 type Observation struct {
@@ -41,13 +64,14 @@ type SessionContext struct {
 }
 
 type DecisionRequest struct {
-	Objective       string           `json:"objective"`
-	OriginalRequest string           `json:"original_request"`
-	SessionContext  *SessionContext  `json:"session_context,omitempty"`
-	Tools           []ToolCapability `json:"tools"`
-	Observations    []Observation    `json:"observations"`
-	Iteration       int              `json:"iteration"`
-	ToolCalls       int              `json:"tool_calls"`
+	Objective       string                    `json:"objective"`
+	OriginalRequest string                    `json:"original_request"`
+	SessionContext  *SessionContext           `json:"session_context,omitempty"`
+	Tools           []ToolCapability          `json:"tools"`
+	ManagedActions  []ManagedActionCapability `json:"managed_actions,omitempty"`
+	Observations    []Observation             `json:"observations"`
+	Iteration       int                       `json:"iteration"`
+	ToolCalls       int                       `json:"tool_calls"`
 }
 
 type Decision struct {
@@ -56,6 +80,7 @@ type Decision struct {
 	ServerID            string         `json:"server_id,omitempty"`
 	Tool                string         `json:"tool,omitempty"`
 	Arguments           map[string]any `json:"arguments,omitempty"`
+	Target              ActionTarget   `json:"target,omitempty"`
 	ExpectedObservation string         `json:"expected_observation,omitempty"`
 	FinalAnswer         string         `json:"final_answer,omitempty"`
 }

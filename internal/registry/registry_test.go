@@ -183,3 +183,28 @@ func TestConfigManifestsPreserveBothManagedRootsAsOneArgument(t *testing.T) {
 		})
 	}
 }
+
+func TestConfigManifestsConfigureFileLogAndLabRoots(t *testing.T) {
+	want := []string{"--roots", "/var/log,/var/lib/safeops/lab"}
+	for _, path := range []string{
+		filepath.Join("..", "..", "config", "mcp_servers.yaml"),
+		filepath.Join("..", "..", "deploy", "config", "mcp_servers.yaml"),
+	} {
+		t.Run(filepath.ToSlash(path), func(t *testing.T) {
+			config, err := registry.Load(path)
+			if err != nil {
+				t.Fatal(err)
+			}
+			for _, server := range config.Servers {
+				if server.ID != "file" {
+					continue
+				}
+				if !reflect.DeepEqual(server.Arguments, want) {
+					t.Fatalf("mcp-file arguments are %#v, want %#v", server.Arguments, want)
+				}
+				return
+			}
+			t.Fatal("file server manifest is missing")
+		})
+	}
+}

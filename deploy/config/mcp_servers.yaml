@@ -81,15 +81,15 @@ servers:
     name: safeops-mcp-file
     display_name: 文件感知
     version: 0.1.0
-    description: 仅在 SafeOps Lab allowlist 内读取文件元数据、目录项和有界哈希
+    description: 仅在配置的只读 allowlist 内读取文件元数据、目录项和有界哈希
     transport: stdio
     command: /opt/safeops/bin/mcp-file
-    arguments: [--root, /var/lib/safeops/lab]
+    arguments: [--roots, "/var/log,/var/lib/safeops/lab"]
     enabled: true
     health_check: ping
     source: builtin
     capabilities: [file, perception, allowlisted, read_only]
-    dependencies: [/var/lib/safeops/lab]
+    dependencies: [/var/log, /var/lib/safeops/lab]
   - id: config
     name: safeops-mcp-config
     display_name: 配置感知

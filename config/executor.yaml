@@ -1,11 +1,13 @@
 schema_version: 1
 allowed_services:
   - safeops-demo-web.service
+read_file_roots:
+  - /
 allowed_file_roots:
-  - /var/lib/safeops/lab
+  - /home
   - /var/lib/safeops/quarantine
 lab_file_roots:
-  - /var/lib/safeops/lab
+  - /home
 quarantine_root: /var/lib/safeops/quarantine
 allowed_process_executables:
   - /opt/safeops/bin/safeops-port-holder

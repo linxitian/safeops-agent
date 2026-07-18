@@ -14,11 +14,12 @@ import (
 
 func TestFileToolsUseAllowlistedReader(t *testing.T) {
 	root := t.TempDir()
+	otherRoot := t.TempDir()
 	path := filepath.Join(root, "demo.log")
 	if err := os.WriteFile(path, []byte("safeops"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	reader, _ := safefs.NewReader(root)
+	reader, _ := safefs.NewReader(root, otherRoot)
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	serverTransport, clientTransport := mcp.NewInMemoryTransports()
@@ -37,6 +38,18 @@ func TestFileToolsUseAllowlistedReader(t *testing.T) {
 	}
 	if count != 5 {
 		t.Fatalf("got %d tools", count)
+	}
+	rootsResult, err := session.CallTool(ctx, &mcp.CallToolParams{Name: "file.list_roots", Arguments: map[string]any{}})
+	if err != nil || rootsResult.IsError {
+		t.Fatalf("unexpected roots result: %+v %v", rootsResult, err)
+	}
+	rootsPayload, ok := rootsResult.StructuredContent.(map[string]any)
+	if !ok {
+		t.Fatalf("unexpected roots payload: %+v", rootsResult.StructuredContent)
+	}
+	roots, ok := rootsPayload["roots"].([]any)
+	if !ok || len(roots) != 2 {
+		t.Fatalf("unexpected roots payload: %+v", rootsResult.StructuredContent)
 	}
 	result, err := session.CallTool(ctx, &mcp.CallToolParams{Name: "file.sha256", Arguments: map[string]any{"path": path}})
 	if err != nil || result.IsError || result.StructuredContent == nil {

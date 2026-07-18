@@ -28,6 +28,7 @@ func (o *Orchestrator) runGeneral(ctx context.Context, value task.Task, emit Eve
 	if len(capabilities) == 0 {
 		return value, errors.New("no healthy MCP tools are available")
 	}
+	managedActions := o.managedActionCapabilities()
 	available := map[string]llm.ToolCapability{}
 	for _, capability := range capabilities {
 		available[capability.ServerID+"\x00"+capability.Name] = capability
@@ -73,6 +74,7 @@ func (o *Orchestrator) runGeneral(ctx context.Context, value task.Task, emit Eve
 			OriginalRequest: value.OriginalRequest,
 			SessionContext:  plannerSessionContext,
 			Tools:           capabilities,
+			ManagedActions:  managedActions,
 			Observations:    plannerObservations(value.Runtime.Observations),
 			Iteration:       value.Runtime.Iterations,
 			ToolCalls:       value.Runtime.ToolCalls,
@@ -82,19 +84,23 @@ func (o *Orchestrator) runGeneral(ctx context.Context, value task.Task, emit Eve
 			return value, err
 		}
 		originalDecision := decision
-		replannedEarlyFinal := false
-		decision, replannedEarlyFinal = replanFinalWithoutEvidence(decision, value)
-		decisionRecord := map[string]any{"objective": value.Objective, "decision_kind": decision.Kind, "decision_summary": decision.DecisionSummary, "selected_server": decision.ServerID, "selected_tool": decision.Tool, "expected_observation": decision.ExpectedObservation}
-		if replannedEarlyFinal {
-			decisionRecord["local_guardrail"] = "replanned_final_without_evidence"
+		replannedWithoutEvidence := false
+		decision, replannedWithoutEvidence = replanWithoutEvidence(decision, value)
+		decisionRecord := map[string]any{"objective": value.Objective, "decision_kind": decision.Kind, "decision_summary": decision.DecisionSummary, "selected_server": decision.ServerID, "selected_tool": decision.Tool, "target": decision.Target, "expected_observation": decision.ExpectedObservation}
+		if replannedWithoutEvidence {
+			decisionRecord["local_guardrail"] = "replanned_decision_without_evidence"
 			decisionRecord["planner_original_kind"] = originalDecision.Kind
 			decisionRecord["planner_original_summary"] = originalDecision.DecisionSummary
 		}
 		if err := o.appendTrace(ctx, value, trace.DecisionRecorded, decisionRecord); err != nil {
 			return value, err
 		}
-		if replannedEarlyFinal {
-			emitEvent(emit, value, "模型过早给出结论，正在要求重新规划相关 MCP 取证")
+		if replannedWithoutEvidence {
+			message := "模型在缺少证据时尝试申请动作，正在要求重新规划 MCP 取证"
+			if originalDecision.Kind == llm.DecisionFinal {
+				message = "模型过早给出结论，正在要求重新规划相关 MCP 取证"
+			}
+			emitEvent(emit, value, message)
 		}
 
 		switch decision.Kind {
@@ -115,6 +121,8 @@ func (o *Orchestrator) runGeneral(ctx context.Context, value task.Task, emit Eve
 				return value, errors.New("completion gate rejected a final answer without MCP evidence")
 			}
 			return o.completeGeneral(ctx, value, decision.FinalAnswer, emit)
+		case llm.DecisionActionRequest:
+			return o.prepareGeneralManagedAction(ctx, value, decision, managedActions, emit)
 		case llm.DecisionTool:
 			capability, ok := available[decision.ServerID+"\x00"+decision.Tool]
 			if !ok {
@@ -178,13 +186,22 @@ func (o *Orchestrator) runGeneral(ctx context.Context, value task.Task, emit Eve
 			result, callErr := o.Registry.CallTool(toolCtx, decision.ServerID, decision.Tool, decision.Arguments)
 			cancel()
 			if callErr != nil {
-				return value, callErr
+				if err := o.recordGeneralToolFailure(ctx, &value, decision, arguments, stepID, callErr.Error(), emit); err != nil {
+					return value, err
+				}
+				continue
 			}
 			if result.IsError {
-				return value, fmt.Errorf("tool %s: %s", decision.Tool, textResult(result))
+				if err := o.recordGeneralToolFailure(ctx, &value, decision, arguments, stepID, textResult(result), emit); err != nil {
+					return value, err
+				}
+				continue
 			}
 			if result.StructuredContent == nil {
-				return value, fmt.Errorf("tool %s returned no structured content", decision.Tool)
+				if err := o.recordGeneralToolFailure(ctx, &value, decision, arguments, stepID, "tool returned no structured content", emit); err != nil {
+					return value, err
+				}
+				continue
 			}
 			captureSelectedResources(&value, decision.Tool, result.StructuredContent)
 			observationJSON, err := boundedObservation(result.StructuredContent)
@@ -217,13 +234,13 @@ func (o *Orchestrator) runGeneral(ctx context.Context, value task.Task, emit Eve
 	}
 }
 
-func replanFinalWithoutEvidence(decision llm.Decision, value task.Task) (llm.Decision, bool) {
-	if decision.Kind != llm.DecisionFinal || (len(value.Runtime.Observations) > 0 && len(value.EvidenceRefs) > 0) {
+func replanWithoutEvidence(decision llm.Decision, value task.Task) (llm.Decision, bool) {
+	if (decision.Kind != llm.DecisionFinal && decision.Kind != llm.DecisionActionRequest) || (len(value.Runtime.Observations) > 0 && len(value.EvidenceRefs) > 0) {
 		return decision, false
 	}
 	return llm.Decision{
 		Kind:            llm.DecisionReplan,
-		DecisionSummary: "模型在缺少 MCP 证据时尝试完成；必须根据用户目标重新规划并选择相关的已发现只读 MCP 工具",
+		DecisionSummary: "模型在缺少 MCP 证据时尝试完成或申请受管动作；必须根据用户目标重新规划并选择相关的已发现只读 MCP 工具",
 	}, true
 }
 
@@ -252,6 +269,53 @@ func (o *Orchestrator) completeGeneral(ctx context.Context, value task.Task, ans
 	}
 	emitEvent(emit, value, "任务完成")
 	return value, nil
+}
+
+func (o *Orchestrator) recordGeneralToolFailure(ctx context.Context, value *task.Task, decision llm.Decision, arguments []byte, stepID, message string, emit EventSink) error {
+	message = boundedToolError(message)
+	observationJSON, err := boundedObservation(map[string]any{
+		"status":      "error",
+		"server":      decision.ServerID,
+		"tool":        decision.Tool,
+		"error":       message,
+		"recoverable": true,
+		"next_action": "choose another relevant read-only MCP tool or explain this source limitation if enough evidence exists",
+	})
+	if err != nil {
+		return err
+	}
+	traceEvent, err := o.Trace.Append(ctx, value.ID, value.SessionID, trace.ToolResult, map[string]any{"server": decision.ServerID, "tool": decision.Tool, "structured_output": json.RawMessage(observationJSON), "tool_error": true})
+	if err != nil {
+		return err
+	}
+	evidenceRef := fmt.Sprintf("trace://%s/%d", value.ID, traceEvent.Sequence)
+	observationErr := recordObservation(&value.Runtime, task.RuntimeObservation{ServerID: decision.ServerID, Tool: decision.Tool, Arguments: append(json.RawMessage(nil), arguments...), Result: observationJSON, EvidenceRef: evidenceRef})
+	if len(value.Plan) > 0 {
+		value.Plan[len(value.Plan)-1].State = "FAILED"
+	}
+	value.EvidenceRefs = append(value.EvidenceRefs, evidenceRef)
+	finding := fmt.Sprintf("%s 调用失败，已记录为可恢复证据（%s）：%s", decision.Tool, shortDigest(observationJSON), message)
+	value.Findings = append(value.Findings, finding)
+	if err := o.Store.SaveTask(ctx, *value); err != nil {
+		return err
+	}
+	if err := o.appendTrace(ctx, *value, trace.FindingsUpdated, map[string]any{"finding": finding, "evidence_ref": evidenceRef, "recoverable_tool_error": true, "step_id": stepID}); err != nil {
+		return err
+	}
+	emitEvent(emit, *value, "工具返回错误，已记录并继续调查："+finding)
+	return observationErr
+}
+
+func boundedToolError(message string) string {
+	message = strings.TrimSpace(message)
+	if message == "" {
+		return "tool failed without a message"
+	}
+	const limit = 1024
+	if len(message) <= limit {
+		return message
+	}
+	return message[:limit] + "..."
 }
 
 func captureSelectedResources(value *task.Task, tool string, structured any) {

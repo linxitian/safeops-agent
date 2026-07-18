@@ -152,20 +152,39 @@ func decodeStructuredDecision(content string) (Decision, error) {
 		return Decision{}, err
 	}
 	allowed := map[string]bool{
-		"kind":                 true,
-		"decision_summary":     true,
-		"server_id":            true,
-		"tool":                 true,
-		"arguments":            true,
-		"target":               true,
-		"expected_observation": true,
-		"final_answer":         true,
-		"answer":               true,
+		"kind":                  true,
+		"decision_summary":      true,
+		"server_id":             true,
+		"tool":                  true,
+		"arguments":             true,
+		"target":                true,
+		"expected_observation":  true,
+		"expected_observations": true,
+		"final_answer":          true,
+		"answer":                true,
 	}
 	for name := range fields {
 		if !allowed[name] {
 			return Decision{}, fmt.Errorf("unknown field %q", name)
 		}
+	}
+	if expectedObservations, ok := fields["expected_observations"]; ok {
+		var aliasValue string
+		if err := json.Unmarshal(expectedObservations, &aliasValue); err != nil {
+			return Decision{}, errors.New("expected_observations must be a JSON string")
+		}
+		if expectedObservation, exists := fields["expected_observation"]; exists {
+			var canonicalValue string
+			if err := json.Unmarshal(expectedObservation, &canonicalValue); err != nil {
+				return Decision{}, errors.New("expected_observation must be a JSON string")
+			}
+			if aliasValue != canonicalValue {
+				return Decision{}, errors.New("expected_observation and expected_observations conflict")
+			}
+		} else {
+			fields["expected_observation"] = expectedObservations
+		}
+		delete(fields, "expected_observations")
 	}
 	if answer, ok := fields["answer"]; ok {
 		if finalAnswer, exists := fields["final_answer"]; exists && !bytes.Equal(bytes.TrimSpace(answer), bytes.TrimSpace(finalAnswer)) {

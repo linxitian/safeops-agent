@@ -67,6 +67,14 @@ The port, CPU, disk and injection tasks were first executed on ancestor release 
 - A slow-provider task that previously left task/Trace state inconsistent was recovered after the deadline fix to durable `FAILED`, with its lease released and Trace still `VALID`.
 - Lab generator units were stopped after testing. The restored files matched their original sizes and the final quarantine object was absent.
 
+## Installed browser audit follow-up
+
+Runtime commit `2b26de4` added an explicit SVG favicon to the bundled Web assets and an API regression test for its MIME type and security headers. Its complete release gates passed, the LoongArch64 archive SHA-256 was `0accff7af8ad7eaecabe4e262f4cbc1fa6caa9359f34615e5927174af8d135f8`, and that exact bundle was checksum-verified and installed on the target before browser capture.
+
+A clean real Google Chrome session on the Ubuntu operator host traversed the target-served UI through a fixed read-only SSH proxy to target loopback. The proxy accepted only a bounded GET/HEAD allowlist; it did not provide any write or arbitrary-command surface. Console, Overview, Tool, Safety, RCA, Audit, Allowlist and LLM views each reached their expected heading and loaded target-backed data. Overview showed 8/8 healthy MCP Servers and 39 discovered Tools; the Tool page rendered eight Server cards; Allowlist loaded the active managed roots; LLM showed the configured Provider/model while the secret field remained empty and no key was recorded.
+
+Chrome recorded 39 responses, all HTTP 200, with no console warnings/errors, JavaScript exceptions, failed responses or loading failures. Every view had zero visible errors, zero horizontal overflow, zero unnamed visible DOM controls and zero unnamed Chrome Accessibility Tree controls. The audit JSON SHA-256 is `0e3d98cf68c694a58300e8c459b5eeb9bbfd796be0d8c0734a09de303d831101`; eight full-page PNG captures accompany the local evidence set. This evidence closes the prior systematic browser-traversal gap and promotes M13/B/S architecture to `TARGET_VERIFIED` for the installed target-served UI.
+
 ## Status decisions and remaining gaps
 
 The audited native evidence promotes all 39 MCP read-tool calls/runtime, general provider interaction, safety/approval/executor/rollback, evidence/RCA, hash Trace, port/CPU/disk/file workflows, and Kylin/LoongArch64 compatibility to `TARGET_VERIFIED`.
@@ -76,6 +84,5 @@ Release/deployment is also `TARGET_VERIFIED` for checksum verification, install,
 The following remain below `TARGET_VERIFIED`:
 
 - the seven-Collector abstraction remains `TESTED` because `targetctl` does not individually execute every Collector adapter;
-- the six-page UI remains `TESTED`; the installed console was served and used, but a systematic target-browser traversal/accessibility run was not captured;
 - benchmarks remain `TESTED` on the development host and are not treated as target evidence;
 - target `git` and `go` commands remain absent, although they are not runtime dependencies.

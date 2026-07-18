@@ -94,8 +94,13 @@ make build-native
 ./bin/safeops-server \
   -listen 127.0.0.1:8080 \
   -data ./data \
-  -mcp-config ./config/mcp_servers.yaml
+  -mcp-config ./config/mcp_servers.yaml \
+  -max-concurrent-tasks 8 \
+  -max-sessions 1000 \
+  -max-tasks 10000
 ```
+
+API 未提供远程身份认证，因此进程只接受 loopback 监听地址；远程操作使用受控 SSH 转发或经过认证的本机反向代理。并发运行/审批恢复、持久 Session 和持久 Task 分别受以上硬上限约束：并发饱和返回 `429 Too Many Requests`，保留容量耗尽返回 `507 Insufficient Storage`，两者都不会修改持久状态。调整保留上限前应先规划审计数据的导出与清理流程。
 
 另一个终端启动开发前端：
 

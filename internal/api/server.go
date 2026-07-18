@@ -38,6 +38,9 @@ type Server struct {
 	llmConfigMu       sync.Mutex
 	sessionMu         sync.Mutex
 	runningSessions   map[string]struct{}
+	resourceMu        sync.Mutex
+	limits            Limits
+	taskSlots         chan struct{}
 	executorAllowlist *executor.ConfigManager
 	runtimeLog        *runtimeLog
 	approvalResumer   interface {
@@ -49,6 +52,28 @@ type Server struct {
 }
 
 type Option func(*Server)
+
+type Limits struct {
+	MaxConcurrentTasks int
+	MaxSessions        int
+	MaxTasks           int
+}
+
+var defaultLimits = Limits{MaxConcurrentTasks: 8, MaxSessions: 1000, MaxTasks: 10000}
+
+func WithLimits(limits Limits) Option {
+	return func(server *Server) {
+		if limits.MaxConcurrentTasks > 0 {
+			server.limits.MaxConcurrentTasks = limits.MaxConcurrentTasks
+		}
+		if limits.MaxSessions > 0 {
+			server.limits.MaxSessions = limits.MaxSessions
+		}
+		if limits.MaxTasks > 0 {
+			server.limits.MaxTasks = limits.MaxTasks
+		}
+	}
+}
 
 func WithApprovals(store *approval.Store, resumer interface {
 	Resume(context.Context, approval.Record) (task.Task, error)
@@ -89,10 +114,11 @@ func WithExecutorAllowlist(manager *executor.ConfigManager) Option {
 }
 
 func New(store storage.Store, registry *registry.Registry, orchestrator *agent.Orchestrator, traceWriter *trace.Writer, options ...Option) *Server {
-	s := &Server{store: store, registry: registry, agent: orchestrator, trace: traceWriter, runningSessions: map[string]struct{}{}, hub: newEventHub(), mux: http.NewServeMux()}
+	s := &Server{store: store, registry: registry, agent: orchestrator, trace: traceWriter, runningSessions: map[string]struct{}{}, limits: defaultLimits, hub: newEventHub(), mux: http.NewServeMux()}
 	for _, option := range options {
 		option(s)
 	}
+	s.taskSlots = make(chan struct{}, s.limits.MaxConcurrentTasks)
 	s.routes()
 	return s
 }
@@ -368,6 +394,10 @@ func (s *Server) resolveApproval(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, errors.New("decision must be APPROVE or REJECT"))
 		return
 	}
+	if !s.acquireTaskSlot(w) {
+		return
+	}
+	defer s.releaseTaskSlot()
 	record, err := s.approvals.Resolve(r.Context(), r.PathValue("approvalID"), approve, input.Reason)
 	if err != nil {
 		writeError(w, http.StatusConflict, err)
@@ -502,6 +532,17 @@ func (s *Server) createSession(w http.ResponseWriter, r *http.Request) {
 	}
 	if len([]rune(strings.TrimSpace(in.Name))) > 128 {
 		writeError(w, http.StatusBadRequest, errors.New("session name must not exceed 128 characters"))
+		return
+	}
+	s.resourceMu.Lock()
+	defer s.resourceMu.Unlock()
+	values, err := s.store.ListSessions(r.Context())
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err)
+		return
+	}
+	if len(values) >= s.limits.MaxSessions {
+		writeRetentionError(w, "session retention limit reached")
 		return
 	}
 	value := session.Session{ID: id.New("ses"), Name: strings.TrimSpace(in.Name), PinnedContext: map[string]string{}, CreatedAt: now, UpdatedAt: now}
@@ -667,39 +708,86 @@ func (s *Server) createMessage(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusConflict, errors.New("session already has a running task"))
 		return
 	}
+	s.resourceMu.Lock()
 	tasks, err := s.store.ListTasks(r.Context())
 	if err != nil {
+		s.resourceMu.Unlock()
 		s.sessionMu.Unlock()
 		writeError(w, http.StatusInternalServerError, err)
 		return
 	}
 	for _, value := range tasks {
 		if value.SessionID == sessionID && !terminal(value.State) {
+			s.resourceMu.Unlock()
 			s.sessionMu.Unlock()
 			writeError(w, http.StatusConflict, fmt.Errorf("session already has active task %s in state %s", value.ID, value.State))
 			return
 		}
 	}
+	if len(tasks) >= s.limits.MaxTasks {
+		s.resourceMu.Unlock()
+		s.sessionMu.Unlock()
+		writeRetentionError(w, "task retention limit reached")
+		return
+	}
+	if !s.reserveTaskSlot() {
+		s.resourceMu.Unlock()
+		s.sessionMu.Unlock()
+		writeLimitError(w, "concurrent task limit reached")
+		return
+	}
 	s.runningSessions[sessionID] = struct{}{}
 	taskID := id.New("task")
 	if _, err := s.agent.Prepare(r.Context(), taskID, sessionID, in.Content); err != nil {
 		delete(s.runningSessions, sessionID)
+		s.releaseTaskSlot()
+		s.resourceMu.Unlock()
 		s.sessionMu.Unlock()
 		writeError(w, http.StatusInternalServerError, err)
 		return
 	}
+	s.resourceMu.Unlock()
 	s.sessionMu.Unlock()
 	go func() {
 		defer func() {
 			s.sessionMu.Lock()
 			delete(s.runningSessions, sessionID)
 			s.sessionMu.Unlock()
+			s.releaseTaskSlot()
 		}()
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 		defer cancel()
 		_, _ = s.agent.Run(ctx, taskID, sessionID, in.Content, s.hub.publish)
 	}()
 	writeJSON(w, http.StatusAccepted, map[string]any{"task_id": taskID, "session_id": sessionID, "state": task.New, "events_url": fmt.Sprintf("/api/v1/tasks/%s/events", taskID)})
+}
+
+func (s *Server) reserveTaskSlot() bool {
+	select {
+	case s.taskSlots <- struct{}{}:
+		return true
+	default:
+		return false
+	}
+}
+
+func (s *Server) acquireTaskSlot(w http.ResponseWriter) bool {
+	if s.reserveTaskSlot() {
+		return true
+	}
+	writeLimitError(w, "concurrent task limit reached")
+	return false
+}
+
+func (s *Server) releaseTaskSlot() { <-s.taskSlots }
+
+func writeLimitError(w http.ResponseWriter, message string) {
+	w.Header().Set("Retry-After", "1")
+	writeError(w, http.StatusTooManyRequests, errors.New(message))
+}
+
+func writeRetentionError(w http.ResponseWriter, message string) {
+	writeError(w, http.StatusInsufficientStorage, errors.New(message))
 }
 func (s *Server) getTask(w http.ResponseWriter, r *http.Request) {
 	value, err := s.store.GetTask(r.Context(), r.PathValue("taskID"))

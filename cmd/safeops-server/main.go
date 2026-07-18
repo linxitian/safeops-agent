@@ -4,7 +4,9 @@ import (
 	"context"
 	"errors"
 	"flag"
+	"fmt"
 	"log"
+	"net"
 	"net/http"
 	"os"
 	"os/signal"
@@ -33,7 +35,16 @@ func main() {
 	executorConfig := flag.String("executor-config", "./config/executor.yaml", "executor allowlist config used to snapshot action targets")
 	executorSecret := flag.String("executor-secret", "", "shared HMAC secret file; empty disables write-action preparation")
 	webRoot := flag.String("web-root", "", "prebuilt frontend directory; empty disables static frontend serving")
+	maxConcurrentTasks := flag.Int("max-concurrent-tasks", 8, "maximum concurrent Agent runs and approval resumes")
+	maxSessions := flag.Int("max-sessions", 1000, "maximum retained Sessions")
+	maxTasks := flag.Int("max-tasks", 10000, "maximum retained Tasks")
 	flag.Parse()
+	if err := validateListenAddress(*listen); err != nil {
+		log.Fatal(err)
+	}
+	if *maxConcurrentTasks <= 0 || *maxSessions <= 0 || *maxTasks <= 0 {
+		log.Fatal("runtime limits must be positive")
+	}
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 	store, err := storage.NewFileStore(*dataDir)
@@ -120,7 +131,7 @@ func main() {
 		log.Fatal(err)
 	}
 	resumer := agent.ApprovalResumer{Store: store, Executor: executorClient, Trace: traceWriter, Continuation: orchestrator}
-	apiOptions := []api.Option{api.WithApprovals(approvalStore, resumer), api.WithLLM(planner, llmSettings), api.WithRuntimeLog(runtimeLog), api.WithExecutorAllowlist(allowlistManager)}
+	apiOptions := []api.Option{api.WithApprovals(approvalStore, resumer), api.WithLLM(planner, llmSettings), api.WithRuntimeLog(runtimeLog), api.WithExecutorAllowlist(allowlistManager), api.WithLimits(api.Limits{MaxConcurrentTasks: *maxConcurrentTasks, MaxSessions: *maxSessions, MaxTasks: *maxTasks})}
 	if *webRoot != "" {
 		index := filepath.Join(*webRoot, "index.html")
 		info, err := os.Stat(index)
@@ -148,6 +159,21 @@ func main() {
 	if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 		log.Fatal(err)
 	}
+}
+
+func validateListenAddress(address string) error {
+	host, _, err := net.SplitHostPort(address)
+	if err != nil {
+		return fmt.Errorf("invalid HTTP listen address: %w", err)
+	}
+	if host == "localhost" {
+		return nil
+	}
+	ip := net.ParseIP(host)
+	if ip == nil || !ip.IsLoopback() {
+		return errors.New("unauthenticated SafeOps API must listen on a loopback address")
+	}
+	return nil
 }
 
 func openRuntimeLog(dataDir string) (*os.File, error) {

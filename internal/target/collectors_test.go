@@ -26,8 +26,8 @@ func (c fakeTargetCollector) Collect(context.Context) ([]perception.Observation,
 
 func TestTargetCollectorPlanUsesAllSevenRealCollectorTypes(t *testing.T) {
 	lab := t.TempDir()
-	config := filepath.Join(lab, "config")
-	if err := os.Mkdir(config, 0o750); err != nil {
+	config := filepath.Join(lab, "mcp_servers.yaml")
+	if err := os.WriteFile(config, []byte("servers: []\n"), 0o640); err != nil {
 		t.Fatal(err)
 	}
 	collectors, err := newTargetCollectors(lab, config)
@@ -41,6 +41,15 @@ func TestTargetCollectorPlanUsesAllSevenRealCollectorTypes(t *testing.T) {
 	status, details := componentPlanCheck("collector", names, targetCollectorNames)
 	if status != Pass {
 		t.Fatalf("production collector plan failed: %s", details)
+	}
+	for _, collector := range collectors {
+		if collector.Name() != "config_change" {
+			continue
+		}
+		values, err := collector.Collect(context.Background())
+		if err != nil || len(values) != 3 {
+			t.Fatalf("config collector did not snapshot its fixed file: observations=%d err=%v", len(values), err)
+		}
 	}
 }
 

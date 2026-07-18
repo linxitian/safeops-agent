@@ -25,7 +25,7 @@ var targetCollectorNames = []string{
 var targetAdapterNames = []string{"opentelemetry", "prometheus"}
 
 func appendNativeCollectorChecks(ctx context.Context, report *Report) {
-	collectors, err := newTargetCollectors(targetLabRoot, targetLabConfigRoot)
+	collectors, err := newTargetCollectors(targetLabRoot, targetConfigPath)
 	if err != nil {
 		report.Checks = append(report.Checks, Check{Name: "collector_setup", Status: Fail, Details: boundedDetail(err.Error())})
 		return
@@ -37,12 +37,12 @@ func appendNativeCollectorChecks(ctx context.Context, report *Report) {
 	appendTargetCollectorChecks(ctx, report, collectors, adapters)
 }
 
-func newTargetCollectors(labRoot, configRoot string) ([]perception.Collector, error) {
+func newTargetCollectors(labRoot, configPath string) ([]perception.Collector, error) {
 	labReader, err := safefs.NewReader(labRoot)
 	if err != nil {
 		return nil, fmt.Errorf("lab reader: %w", err)
 	}
-	configReader, err := safefs.NewReader(configRoot)
+	configReader, err := safefs.NewReader(configPath)
 	if err != nil {
 		return nil, fmt.Errorf("config reader: %w", err)
 	}
@@ -55,7 +55,7 @@ func newTargetCollectors(labRoot, configRoot string) ([]perception.Collector, er
 		perception.SystemdCollector{Platform: commands, Units: []string{targetServiceUnit, "safeops-privexec.service"}, MaxUnits: 16},
 		perception.JournalCollector{Platform: commands, Queries: []platform.JournalQuery{{Unit: targetServiceUnit, Lines: 20, Priority: 7}}},
 		perception.SystemConfigCollector{Platform: linux, Sysctls: linux, SelectedSysctls: []string{"kernel.pid_max", "net.core.somaxconn"}, MaxMounts: 128},
-		perception.ConfigChangeCollector{Reader: configReader, Paths: []string{configRoot}, Limit: 100, MaxFileBytes: 1 << 20, MaxTotalBytes: 4 << 20},
+		perception.ConfigChangeCollector{Reader: configReader, Paths: []string{configPath}, Limit: 1, MaxFileBytes: 1 << 20, MaxTotalBytes: 1 << 20},
 	}, nil
 }
 

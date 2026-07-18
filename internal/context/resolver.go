@@ -29,8 +29,8 @@ func ResolveResource(reference string, resources []string) (string, int, error) 
 	if strings.Contains(normalized, "最后一个") || strings.Contains(normalized, "最后一项") {
 		index = len(resources) - 1
 	}
-	if index == -1 && len(resources) == 1 && (strings.Contains(normalized, "这个") || strings.Contains(normalized, "它")) {
-		index = 0
+	if index == -1 && hasCurrentResourcePronoun(normalized) {
+		index = len(resources) - 1
 	}
 	if index < 0 {
 		return "", -1, errors.New("resource reference is ambiguous; use an explicit ordinal")
@@ -39,4 +39,13 @@ func ResolveResource(reference string, resources []string) (string, int, error) 
 		return "", -1, errors.New("resource ordinal is outside the selected list")
 	}
 	return resources[index], index, nil
+}
+
+func hasCurrentResourcePronoun(value string) bool {
+	for _, text := range []string{"这个", "该文件", "该项", "该资源", "它"} {
+		if strings.Contains(value, text) {
+			return true
+		}
+	}
+	return false
 }

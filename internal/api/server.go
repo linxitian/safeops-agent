@@ -20,6 +20,7 @@ import (
 	"safeops-agent/internal/executor"
 	"safeops-agent/internal/id"
 	"safeops-agent/internal/llm"
+	"safeops-agent/internal/platform"
 	"safeops-agent/internal/registry"
 	"safeops-agent/internal/session"
 	"safeops-agent/internal/storage"
@@ -42,6 +43,9 @@ type Server struct {
 	limits            Limits
 	taskSlots         chan struct{}
 	executorAllowlist *executor.ConfigManager
+	systemPlatform    platform.Platform
+	systemMu          sync.Mutex
+	lastCPU           platform.CPUStat
 	runtimeLog        *runtimeLog
 	approvalResumer   interface {
 		Resume(context.Context, approval.Record) (task.Task, error)
@@ -114,7 +118,7 @@ func WithExecutorAllowlist(manager *executor.ConfigManager) Option {
 }
 
 func New(store storage.Store, registry *registry.Registry, orchestrator *agent.Orchestrator, traceWriter *trace.Writer, options ...Option) *Server {
-	s := &Server{store: store, registry: registry, agent: orchestrator, trace: traceWriter, runningSessions: map[string]struct{}{}, limits: defaultLimits, hub: newEventHub(), mux: http.NewServeMux()}
+	s := &Server{store: store, registry: registry, agent: orchestrator, trace: traceWriter, runningSessions: map[string]struct{}{}, limits: defaultLimits, systemPlatform: platform.NewLinux(), hub: newEventHub(), mux: http.NewServeMux()}
 	for _, option := range options {
 		option(s)
 	}
@@ -479,7 +483,109 @@ func (s *Server) overview(w http.ResponseWriter, r *http.Request) {
 			serverCounts["healthy"]++
 		}
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"mcp": serverCounts, "sessions": sessionCounts, "tasks": taskCounts, "approvals": approvalCounts, "generated_at": time.Now().UTC()})
+	system, err := s.systemOverview(r.Context())
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"mcp": serverCounts, "sessions": sessionCounts, "tasks": taskCounts, "approvals": approvalCounts, "system": system, "generated_at": time.Now().UTC()})
+}
+
+func (s *Server) systemOverview(ctx context.Context) (map[string]any, error) {
+	if s.systemPlatform == nil {
+		return nil, errors.New("system platform is not configured")
+	}
+	cpu, err := s.systemPlatform.CPU(ctx)
+	if err != nil {
+		return nil, err
+	}
+	memory, err := s.systemPlatform.Memory(ctx)
+	if err != nil {
+		return nil, err
+	}
+	load, err := s.systemPlatform.Load(ctx)
+	if err != nil {
+		return nil, err
+	}
+	disk, err := s.systemPlatform.Disk(ctx, "/")
+	if err != nil {
+		return nil, err
+	}
+	kernel, err := s.systemPlatform.Kernel(ctx)
+	if err != nil {
+		return nil, err
+	}
+	uptime, err := s.systemPlatform.Uptime(ctx)
+	if err != nil {
+		return nil, err
+	}
+	usageRatio := 0.0
+	s.systemMu.Lock()
+	if s.lastCPU.Total > 0 && cpu.Total > s.lastCPU.Total && cpu.Busy >= s.lastCPU.Busy {
+		deltaTotal := cpu.Total - s.lastCPU.Total
+		deltaBusy := cpu.Busy - s.lastCPU.Busy
+		if deltaTotal > 0 {
+			usageRatio = float64(deltaBusy) / float64(deltaTotal)
+		}
+	} else if cpu.Total > 0 {
+		usageRatio = float64(cpu.Busy) / float64(cpu.Total)
+	}
+	s.lastCPU = cpu
+	s.systemMu.Unlock()
+	memoryRatio := 0.0
+	if memory.TotalBytes > 0 {
+		memoryRatio = float64(memory.UsedBytes) / float64(memory.TotalBytes)
+	}
+	swapUsed := uint64(0)
+	if memory.SwapTotalBytes > memory.SwapFreeBytes {
+		swapUsed = memory.SwapTotalBytes - memory.SwapFreeBytes
+	}
+	swapRatio := 0.0
+	if memory.SwapTotalBytes > 0 {
+		swapRatio = float64(swapUsed) / float64(memory.SwapTotalBytes)
+	}
+	return map[string]any{
+		"hostname":       kernel.Hostname,
+		"os":             kernel.OS,
+		"os_name":        kernel.OSName,
+		"os_version":     kernel.OSVersion,
+		"architecture":   kernel.Architecture,
+		"kernel":         kernel.Kernel,
+		"uptime_seconds": int64(uptime.Seconds()),
+		"cpu": map[string]any{
+			"usage_ratio":  usageRatio,
+			"busy_ticks":   cpu.Busy,
+			"total_ticks":  cpu.Total,
+			"collected_at": cpu.Collected,
+		},
+		"memory": map[string]any{
+			"total_bytes":      memory.TotalBytes,
+			"available_bytes":  memory.AvailableBytes,
+			"used_bytes":       memory.UsedBytes,
+			"used_ratio":       memoryRatio,
+			"swap_total_bytes": memory.SwapTotalBytes,
+			"swap_used_bytes":  swapUsed,
+			"swap_used_ratio":  swapRatio,
+			"collected_at":     memory.Collected,
+		},
+		"load": map[string]any{
+			"load_1":            load.One,
+			"load_5":            load.Five,
+			"load_15":           load.Fifteen,
+			"running_processes": load.RunningProcesses,
+			"total_processes":   load.TotalProcesses,
+			"last_pid":          load.LastPID,
+			"collected_at":      load.Collected,
+		},
+		"disk": map[string]any{
+			"path":        disk.Path,
+			"total_bytes": disk.TotalBytes,
+			"used_bytes":  disk.UsedBytes,
+			"free_bytes":  disk.FreeBytes,
+			"used_ratio":  disk.UsedRatio,
+		},
+		"generated_at": time.Now().UTC(),
+	}, nil
 }
 func (s *Server) mcpServers(w http.ResponseWriter, _ *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"servers": s.registry.States()})

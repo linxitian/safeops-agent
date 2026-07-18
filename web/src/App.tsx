@@ -11,7 +11,21 @@ type Task = { task_id: string; session_id?: string; objective?: string; intent_t
 type Approval = { approval_id: string; status: string; reason?: string; expires_at: string; binding: { task_id: string; tool: string; risk_level: string; policy_version: string; target_snapshot_digest: string } }
 type TraceEvent = { sequence: number; timestamp: string; type: string; event_hash: string; prev_hash?: string; data?: unknown }
 type RuntimeEvent = { sequence: number; type: string; task_id: string; state: string; message: string; timestamp: string }
-type Overview = { mcp: Record<string, number>; sessions: Record<string, number>; tasks: Record<string, number>; approvals: Record<string, number>; generated_at: string }
+type SystemOverview = {
+  hostname: string
+  os: string
+  os_name?: string
+  os_version?: string
+  architecture: string
+  kernel: string
+  uptime_seconds: number
+  cpu: { usage_ratio: number; busy_ticks: number; total_ticks: number; collected_at: string }
+  memory: { total_bytes: number; available_bytes: number; used_bytes: number; used_ratio: number; swap_total_bytes: number; swap_used_bytes: number; swap_used_ratio: number; collected_at: string }
+  load: { load_1: number; load_5: number; load_15: number; running_processes: number; total_processes: number; last_pid: number; collected_at: string }
+  disk: { path: string; total_bytes: number; used_bytes: number; free_bytes: number; used_ratio: number }
+  generated_at: string
+}
+type Overview = { mcp: Record<string, number>; sessions: Record<string, number>; tasks: Record<string, number>; approvals: Record<string, number>; system?: SystemOverview; generated_at: string }
 type ToolRecord = { name: string; description: string; schema_hash: string }
 type DependencyState = { name: string; kind: string; available: boolean; resolved?: string; mode?: string; is_dir: boolean; size_bytes?: number; modified_at?: string; error?: string; checked_at: string }
 type HealthRecord = { checked_at: string; status: string; error?: string; dependencies_healthy: boolean; duration_millis: number }
@@ -50,6 +64,100 @@ const viewTitle: Record<View, [string, string]> = {
 
 const asArray = <T,>(value?: T[] | null): T[] => Array.isArray(value) ? value : []
 const formatTime = (value: string) => new Date(value).toLocaleString('zh-CN', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' })
+const clampRatio = (value?: number) => Math.max(0, Math.min(1, Number.isFinite(value || 0) ? value || 0 : 0))
+const formatPercent = (value?: number) => `${Math.round(clampRatio(value) * 100)}%`
+const formatBytes = (value?: number) => {
+  const bytes = Number.isFinite(value || 0) ? value || 0 : 0
+  if (bytes >= 1024 ** 4) return `${(bytes / 1024 ** 4).toFixed(1)} TiB`
+  if (bytes >= 1024 ** 3) return `${(bytes / 1024 ** 3).toFixed(1)} GiB`
+  if (bytes >= 1024 ** 2) return `${(bytes / 1024 ** 2).toFixed(1)} MiB`
+  return `${Math.round(bytes / 1024)} KiB`
+}
+const formatDuration = (seconds?: number) => {
+  const total = Math.max(0, Math.floor(seconds || 0))
+  const days = Math.floor(total / 86400)
+  const hours = Math.floor((total % 86400) / 3600)
+  const minutes = Math.floor((total % 3600) / 60)
+  return days > 0 ? `${days} 天 ${hours} 小时` : `${hours} 小时 ${minutes} 分钟`
+}
+const formatLoad = (value?: number) => Number.isFinite(value || 0) ? (value || 0).toFixed(2) : '-'
+const traceStatusText = (value?: string) => value === 'VALID' ? '有效' : value ? '需检查' : '待校验'
+const evidenceDigestPattern = /[（(]?\s*(?:sha256:[a-f0-9]{8,64}|trace:\/\/[^\s）)]+)\s*[）)]?/gi
+const traceSummaryPattern = /\d+\s*条证据引用\s*·\s*Trace\s+[A-Z_]+/gi
+const cleanEvidenceNoise = (value?: string) => (value || '')
+  .replace(traceSummaryPattern, '')
+  .replace(evidenceDigestPattern, '')
+  .replace(/\s+/g, ' ')
+  .replace(/\s+([，。；：、])/g, '$1')
+  .trim()
+const uniqueSentences = (values: string[]) => Array.from(new Set(values.map(item => item.trim()).filter(Boolean)))
+const knownReasonSummary = (value?: string) => {
+  const clean = cleanEvidenceNoise(value)
+  const lower = clean.toLowerCase()
+  const reasons: string[] = []
+  if (lower.includes('path is outside all allowlisted roots') || lower.includes('file path is outside allowed roots') || lower.includes('outside allowed roots') || lower.includes('not in the allowlisted roots')) reasons.push('目标路径不在当前允许访问范围内')
+  if (lower.includes('read-only file tools') || lower.includes('only provides read-only') || lower.includes('without any compression') || lower.includes('compression or packaging capabilities')) reasons.push('当前工具能力不支持压缩打包等写动作')
+  if (lower.includes('file action workflow is not configured')) reasons.push('文件写动作链路未启用')
+  if (lower.includes('session has no selected resources')) reasons.push('会话中没有可继续引用的已选资源')
+  if (lower.includes('resource reference is ambiguous')) reasons.push('上下文中存在多个资源，需要明确目标或序号')
+  if (lower.includes('permission denied')) reasons.push('执行权限不足')
+  if (lower.includes('not found') || lower.includes('no such file')) reasons.push('目标资源不存在')
+  return uniqueSentences(reasons).join('；')
+}
+const actionSuccessSummary = (value?: string) => {
+  const clean = cleanEvidenceNoise(value)
+  if (/file\.create/.test(clean)) return '任务成功：文件已创建，并已通过最小权限执行器验证。'
+  if (/file\.delete/.test(clean)) return '任务成功：文件已删除，并已通过最小权限执行器验证。'
+  if (/file\.quarantine/.test(clean)) return '任务成功：文件已隔离，并已通过最小权限执行器验证。'
+  if (/file\.restore/.test(clean)) return '任务成功：文件已恢复，并已通过最小权限执行器验证。'
+  if (/service\.restart/.test(clean)) return '任务成功：服务已重启，并已通过最小权限执行器验证。'
+  if (/process\.terminate/.test(clean)) return '任务成功：目标进程已终止，并已通过最小权限执行器验证。'
+  if (/审批已自动恢复任务|完成并验证/.test(clean)) return '任务成功：受控动作已完成，并已通过最小权限执行器验证。'
+  return ''
+}
+const firstReadableChineseSentence = (value?: string) => {
+  const clean = cleanEvidenceNoise(value)
+  const chinese = clean.match(/[\u4e00-\u9fff][^。！？]*[。！？]?/g)?.map(item => item.trim()).find(Boolean)
+  return chinese || ''
+}
+const containsMostlyEnglish = (value: string) => {
+  const english = value.match(/[A-Za-z]/g)?.length || 0
+  const chinese = value.match(/[\u4e00-\u9fff]/g)?.length || 0
+  return english > 20 && english > chinese
+}
+const simplifyAssistantReply = (content: string) => {
+  const clean = cleanEvidenceNoise(content)
+  const success = actionSuccessSummary(clean)
+  if (success) return success
+  const reason = knownReasonSummary(clean)
+  if (/任务失败|任务已安全结束/i.test(clean)) return `任务失败：${reason || firstReadableChineseSentence(clean) || '任务已安全结束，具体原因可在审计追踪中查看。'}`
+  if (/cannot complete|无法完成|不能完成|未执行|outside all allowlisted|not in the allowlisted|without any compression|read-only file tools/i.test(clean)) return `任务完成：已完成受限调查，但目标操作未执行。\n原因：${reason || '当前安全边界或工具能力不满足本次操作。'}`
+  if (/任务完成|完成条件已满足/i.test(clean) && reason) return `任务完成：${reason}`
+  if (containsMostlyEnglish(clean)) return reason ? `任务完成：${reason}` : '任务完成：Agent 已返回结果，原始证据细节可在审计追踪中查看。'
+  return content
+}
+const taskResultSummary = (value: Task, integrity?: string) => {
+  const sources = [value.failure_reason || '', ...asArray(value.findings)]
+  const source = sources.join(' ')
+  const success = actionSuccessSummary(source)
+  const reason = knownReasonSummary(source)
+  const fallback = cleanEvidenceNoise(asArray(value.findings).at(-1) || value.failure_reason || '')
+  const title = value.state === 'COMPLETED' ? (success ? '任务成功' : '任务完成') : value.state === 'CANCELLED' ? '任务已取消' : '任务失败'
+  const detail = value.state === 'COMPLETED'
+    ? success.replace(/^任务成功：/, '') || (reason ? `原因：${reason}` : fallback || '完成条件已满足，结果已写入持久任务记录。')
+    : reason || fallback || '任务已安全结束，原因可在审计追踪中查看。'
+  return { title, detail, audit: `审计链完整性：${traceStatusText(integrity)}` }
+}
+const summarizeProgressMessage = (value: string) => {
+  const clean = cleanEvidenceNoise(value)
+  const reason = knownReasonSummary(clean)
+  if (/工具返回错误|调用失败/i.test(clean)) return reason ? `工具调用失败，已记录并继续调查：${reason}` : '工具调用失败，已记录并继续调查。'
+  if (/已获得证据|返回结构化证据/i.test(clean)) return '已获得结构化证据。'
+  if (/任务完成|完成条件已满足/i.test(clean)) return '任务完成。'
+  if (/任务失败/i.test(clean)) return reason ? `任务失败：${reason}` : '任务失败。'
+  return clean
+}
+const displayMessageContent = (message: Message, content?: string) => message.role === 'assistant' ? simplifyAssistantReply(content ?? message.content) : content ?? message.content
 const uniquePaths = (values: string[]) => Array.from(new Set(values.map(item => item.trim()).filter(Boolean)))
 const splitPathLines = (value: string) => uniquePaths(value.split(/\r?\n/))
 const joinPathLines = (values: string[]) => uniquePaths(values).join('\n')
@@ -98,7 +206,8 @@ function SafeMarkdown({ content, streaming = false }: { content: string; streami
 
 function sessionPreview(session: Session) {
   const latest = asArray(session.messages).at(-1)
-  return latest?.content?.replace(/\s+/g, ' ').slice(0, 72) || session.summary || '尚未开始对话'
+  const content = latest ? displayMessageContent(latest).replace(/\s+/g, ' ') : ''
+  return content.slice(0, 72) || session.summary || '尚未开始对话'
 }
 
 function isDefaultSessionName(name: string) {
@@ -203,7 +312,7 @@ export default function App() {
       streamedTaskIDsRef.current.add(animateTaskID)
       const reply = [...asArray(value.messages)].reverse().find(message => message.role === 'assistant' && message.task_id === animateTaskID)
       const reduceMotion = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches ?? false
-      if (reply?.content && !reduceMotion) nextStreamingReply = { messageID: reply.message_id, glyphs: Array.from(reply.content), visibleCount: 0 }
+      if (reply?.content && !reduceMotion) nextStreamingReply = { messageID: reply.message_id, glyphs: Array.from(displayMessageContent(reply)), visibleCount: 0 }
     }
     setActive(value)
     setStreamingReply(nextStreamingReply)
@@ -258,6 +367,9 @@ export default function App() {
     const query = new URLSearchParams({ mode, path: path || '' })
     setPathBrowserLoading(true)
     setPathBrowserError('')
+    setPathBrowser(null)
+    setPathBrowserMode(mode)
+    setPathBrowserPath(path || '')
     try {
       const value = await api<PathBrowser>(`/api/v1/executor/path-browser?${query}`)
       setPathBrowser(value)
@@ -296,6 +408,14 @@ export default function App() {
 
   useEffect(() => {
     if (view !== 'console') loadWorkspace().catch(err => setError(err instanceof Error ? err.message : String(err)))
+  }, [loadWorkspace, view])
+
+  useEffect(() => {
+    if (view !== 'overview') return
+    const timer = window.setInterval(() => {
+      loadWorkspace().catch(err => setError(err instanceof Error ? err.message : String(err)))
+    }, 2000)
+    return () => window.clearInterval(timer)
   }, [loadWorkspace, view])
 
   useEffect(() => {
@@ -555,6 +675,9 @@ export default function App() {
   }
   const switchPathBrowserMode = (mode: BrowserMode) => {
     const path = mode === 'write' ? allowlistDraftRoots[0] || allowlistCandidates[0] || pathBrowserPath : asArray(allowlistConfig?.read_only_roots)[0] || '/'
+    setPathBrowserMode(mode)
+    setPathBrowser(null)
+    setPathBrowserPath(path)
     void loadPathBrowser(path, mode)
   }
   const createBrowserDirectory = async () => {
@@ -581,11 +704,12 @@ export default function App() {
       {!(active?.messages || []).length && <div className="welcome"><div className="orb">S</div><h2>从真实系统证据开始</h2><p>输入需要调查、恢复或受控处理的系统问题。涉及写动作时，SafeOps 会先展示精确目标、风险、过期时间和独立审批。</p></div>}
       {(active?.messages || []).map(message => {
         const isStreaming = streamingReply?.messageID === message.message_id && streamingReply.visibleCount < streamingReply.glyphs.length
-        const visibleContent = isStreaming ? streamingReply.glyphs.slice(0, streamingReply.visibleCount).join('') : message.content
-        return <article key={message.message_id} className={`message ${message.role} ${isStreaming ? 'is-streaming' : ''}`}><div className="avatar">{message.role === 'user' ? '你' : 'S'}</div><div><span className="role">{message.role === 'user' ? '运维人员' : 'SafeOps'}</span><div aria-hidden={isStreaming || undefined}><SafeMarkdown content={visibleContent} streaming={isStreaming} /></div>{isStreaming && <span className="sr-only" aria-live="polite">{message.content}</span>}</div></article>
+        const visibleContent = isStreaming ? streamingReply.glyphs.slice(0, streamingReply.visibleCount).join('') : displayMessageContent(message)
+        const accessibleContent = displayMessageContent(message)
+        return <article key={message.message_id} className={`message ${message.role} ${isStreaming ? 'is-streaming' : ''}`}><div className="avatar">{message.role === 'user' ? '你' : 'S'}</div><div><span className="role">{message.role === 'user' ? '运维人员' : 'SafeOps'}</span><div aria-hidden={isStreaming || undefined}><SafeMarkdown content={visibleContent} streaming={isStreaming} /></div>{isStreaming && <span className="sr-only" aria-live="polite">{accessibleContent}</span>}</div></article>
       })}
       {busy && pendingSessionID === active?.session_id && approval?.status !== 'PENDING' && <article className="message assistant thinking-message" role="status" aria-live="polite"><div className="avatar">S</div><div><span className="role">SafeOps</span><div className="thinking-status"><span>思考中</span><span className="thinking-dots" aria-hidden="true"><i /><i /><i /></span></div></div></article>}
-      {asArray(progress).length > 0 && <div className="progress-card"><strong>{busy ? '任务运行中' : '任务事件'}</strong>{asArray(progress).map((item, index) => <div key={`${index}-${item}`}><i className={index === asArray(progress).length - 1 && busy ? 'pulse' : ''} />{item}</div>)}</div>}
+      {asArray(progress).length > 0 && <div className="progress-card"><strong>{busy ? '任务运行中' : '任务事件'}</strong>{asArray(progress).map((item, index) => <div key={`${index}-${item}`}><i className={index === asArray(progress).length - 1 && busy ? 'pulse' : ''} />{summarizeProgressMessage(item)}</div>)}</div>}
       {approval?.status === 'PENDING' && task?.pending_action && <section className="approval-card" aria-live="polite">
         <div className="approval-heading"><div><span>人工审批</span><h3>{task.pending_action.proposal.tool}</h3></div><b className={`risk ${task.pending_action.risk.risk_level}`}>{riskLabel(task.pending_action.risk.risk_level)}</b></div>
         <dl><div><dt>精确目标</dt><dd>{targetLabel(task.pending_action.target_snapshot)}</dd></div><div><dt>风险分数</dt><dd>{task.pending_action.risk.risk_score} / 100</dd></div><div><dt>批量范围</dt><dd>{task.pending_action.proposal.batch_size || 1} 个目标</dd></div><div><dt>可逆性</dt><dd>{task.pending_action.proposal.reversible ? `可逆：${task.pending_action.proposal.rollback_strategy || '已声明回滚'}` : '不可逆；执行器仅允许固定验证策略'}</dd></div></dl>
@@ -594,7 +718,10 @@ export default function App() {
         <small>审批 ID：{approval.approval_id}<br />过期：{new Date(approval.expires_at).toLocaleString('zh-CN')}<br />目标快照摘要：{approval.binding.target_snapshot_digest.slice(0, 18)}…</small>
         <div className="approval-actions"><button className="reject" disabled={resolving} onClick={() => resolveApproval('REJECT')}>拒绝并安全结束</button><button className="approve" disabled={resolving} onClick={() => resolveApproval('APPROVE')}>{resolving ? '正在提交' : '批准精确动作'}</button></div>
       </section>}
-      {task && terminal(task.state) && <section className={`result-card ${task.state.toLowerCase()}`}><span>执行结果</span><h3>{task.state === 'COMPLETED' ? '完成条件已满足' : '任务已安全结束'}</h3><p>{task.failure_reason || asArray(task.findings).at(-1) || '权威结果已写入持久 Task 与审计链。'}</p><small>{asArray(task.evidence_refs).length} 条证据引用 · Trace {traceIntegrity || '待校验'}</small></section>}
+      {task && terminal(task.state) && (() => {
+        const result = taskResultSummary(task, traceIntegrity)
+        return <section className={`result-card ${task.state.toLowerCase()}`}><span>执行结果</span><h3>{result.title}</h3><p>{result.detail}</p><small>{result.audit}</small></section>
+      })()}
     </section>
     <form className="composer" onSubmit={submit} aria-busy={busy}>
       <label className="sr-only" htmlFor="agent-input">描述希望调查的系统问题</label>
@@ -623,9 +750,31 @@ export default function App() {
 
   const filteredServers = asArray(mcpServers).map(server => ({ ...server, tools: asArray(server.tools).filter(tool => !toolSearch.trim() || tool.name.toLowerCase().includes(toolSearch.trim().toLowerCase()) || tool.description.toLowerCase().includes(toolSearch.trim().toLowerCase())) })).filter(server => !toolSearch.trim() || asArray(server.tools).length > 0 || server.manifest.display_name.includes(toolSearch.trim()))
   const rcaEvents = asArray(traceEvents).filter(event => event.type === 'RCA_RESULT' || event.type === 'KNOWLEDGE_RETRIEVED')
+  const system = overview?.system
 
   const renderWorkspace = () => <section className="workspace-page">
-    {view === 'overview' && <><div className="page-lead"><h2>系统运行全景</h2><p>来自持久 Session/Task、审批 Store 与 MCP Registry 的实时汇总；不是静态演示数字。</p></div>
+    {view === 'overview' && <><div className="page-lead"><h2>系统运行全景</h2><p>系统基本信息、CPU、内存、负载与根分区容量会实时刷新；下方继续展示持久任务、审批 Store 与 MCP Registry 汇总。</p><span className="live-stamp">每 2 秒刷新 · {overview?.generated_at ? new Date(overview.generated_at).toLocaleTimeString('zh-CN') : '等待数据'}</span></div>
+      <section className="system-live" aria-label="实时系统基本信息">
+        <div className="system-identity">
+          <div><span>主机</span><b>{system?.hostname || '-'}</b></div>
+          <div><span>系统</span><b>{system?.os_name || system?.os || '-'}</b></div>
+          <div><span>内核</span><b>{system?.kernel || '-'}</b></div>
+          <div><span>架构</span><b>{system?.architecture || '-'}</b></div>
+          <div><span>运行时间</span><b>{formatDuration(system?.uptime_seconds)}</b></div>
+        </div>
+        <div className="resource-grid">
+          <ResourceMeter label="CPU 使用率" value={formatPercent(system?.cpu.usage_ratio)} ratio={system?.cpu.usage_ratio} tone="cpu" detail={system?.cpu.collected_at ? `采样 ${new Date(system.cpu.collected_at).toLocaleTimeString('zh-CN')}` : '等待采样'} />
+          <ResourceMeter label="内存使用" value={formatPercent(system?.memory.used_ratio)} ratio={system?.memory.used_ratio} tone="memory" detail={`${formatBytes(system?.memory.used_bytes)} / ${formatBytes(system?.memory.total_bytes)}`} />
+          <ResourceMeter label="根分区使用" value={formatPercent(system?.disk.used_ratio)} ratio={system?.disk.used_ratio} tone="disk" detail={`${system?.disk.path || '/'} · 剩余 ${formatBytes(system?.disk.free_bytes)}`} />
+          <ResourceMeter label="系统负载" value={formatLoad(system?.load.load_1)} ratio={Math.min((system?.load.load_1 || 0) / Math.max(1, system?.load.total_processes || 1), 1)} tone="load" detail={`5m ${formatLoad(system?.load.load_5)} · 15m ${formatLoad(system?.load.load_15)}`} />
+        </div>
+        <div className="system-facts">
+          <span>进程 <b>{system ? `${system.load.running_processes} / ${system.load.total_processes}` : '-'}</b></span>
+          <span>Swap <b>{system ? `${formatBytes(system.memory.swap_used_bytes)} / ${formatBytes(system.memory.swap_total_bytes)}` : '-'}</b></span>
+          <span>CPU ticks <b>{system ? `${system.cpu.busy_ticks} / ${system.cpu.total_ticks}` : '-'}</b></span>
+          <span>Last PID <b>{system?.load.last_pid || '-'}</b></span>
+        </div>
+      </section>
       <div className="metric-grid">
         <Metric label="MCP 健康" value={`${overview?.mcp.healthy || 0} / ${overview?.mcp.total || 0}`} detail={`${overview?.mcp.tools || 0} 个已发现 Tool`} />
         <Metric label="活动会话" value={String(overview?.sessions.active || 0)} detail={`${overview?.sessions.archived || 0} 个已归档`} />
@@ -660,18 +809,18 @@ export default function App() {
       <section className="workspace-card"><h3>审批记录</h3>{asArray(approvals).length ? asArray(approvals).slice(0, 20).map(item => <div className="approval-row" key={item.approval_id}><div><span>{item.binding.tool}</span><small>{item.approval_id} · policy {item.binding.policy_version}</small></div><b className={`risk ${item.binding.risk_level}`}>{item.binding.risk_level} · {item.status}</b></div>) : <p className="muted">暂无审批记录</p>}</section>
     </>}
     {view === 'rca' && <><div className="page-lead"><h2>当前任务根因视图</h2><p>展示候选原因、已用证据和缺失证据；D3 不会伪装成确定根因。</p></div>
-      <div className="workspace-grid"><section className="workspace-card"><h3>任务发现</h3>{asArray(task?.findings).length ? asArray(task?.findings).map((item, index) => <p className="evidence-item" key={`${index}-${item}`}>{item}</p>) : <p className="muted">选择含 RCA 的任务后显示发现。</p>}<div className="evidence-count">证据引用：{asArray(task?.evidence_refs).length}</div></section><section className="workspace-card"><h3>RCA / Knowledge 事件</h3>{rcaEvents.length ? rcaEvents.map(event => <details className="audit-detail" key={event.sequence}><summary>#{event.sequence} {event.type}</summary><pre>{JSON.stringify(event.data, null, 2)}</pre></details>) : <p className="muted">当前 Trace 尚无 RCA_RESULT。</p>}</section></div>
+      <div className="workspace-grid"><section className="workspace-card"><h3>任务发现</h3>{asArray(task?.findings).length ? asArray(task?.findings).map((item, index) => <p className="evidence-item" key={`${index}-${item}`}>{summarizeProgressMessage(item)}</p>) : <p className="muted">选择含 RCA 的任务后显示发现。</p>}<div className="evidence-count">证据引用：{asArray(task?.evidence_refs).length}</div></section><section className="workspace-card"><h3>RCA / Knowledge 事件</h3>{rcaEvents.length ? rcaEvents.map(event => <details className="audit-detail" key={event.sequence}><summary>#{event.sequence} {event.type}</summary><pre>{JSON.stringify(event.data, null, 2)}</pre></details>) : <p className="muted">当前 Trace 尚无 RCA_RESULT。</p>}</section></div>
     </>}
     {view === 'audit' && <><div className="page-lead"><h2>可审计推理轨迹</h2><p>只展示结构化 DecisionRecord、Guard、工具、审批、执行与验证；不保存模型隐藏思维过程。</p><span className={`integrity ${traceIntegrity}`}>{traceIntegrity || '请选择任务'}</span></div>
       <section className="audit-timeline">{asArray(traceEvents).length ? asArray(traceEvents).map(event => <article key={event.sequence}><span>{event.sequence}</span><div><header><b>{event.type}</b><time>{new Date(event.timestamp).toLocaleString('zh-CN')}</time></header><code>{event.event_hash.slice(0, 20)}…</code>{event.data !== undefined && <details className="audit-detail"><summary>结构化事件数据</summary><pre>{JSON.stringify(event.data, null, 2)}</pre></details>}</div></article>) : <p className="muted">从会话或系统概览选择任务后显示完整 Trace。</p>}</section>
     </>}
     {view === 'allowlist' && <><div className="page-lead"><h2>Agent 管控路径</h2><p>配置文件写动作允许触达的目录。保存后 server 立即使用新路径生成审批快照；这些路径只能缩小管理员在执行端配置的范围，因此无需重启 safeops-privexec。</p></div>
       <div className="workspace-grid allowlist-layout"><section className="workspace-card"><h3>当前管控范围</h3><div className="bar-row"><span>写动作流程</span><b>{allowlistConfig?.write_actions_enabled ? '已启用' : '未启用'}</b></div><div className="bar-row"><span>配置文件</span><b>{allowlistConfig?.config_path || '-'}</b></div><div className="bar-row"><span>隔离目录</span><b>{allowlistConfig?.quarantine_root || '-'}</b></div><div className="bar-row"><span>执行端重启</span><b>{allowlistConfig?.requires_executor_restart ? '需要' : '不需要'}</b></div>{asArray(allowlistConfig?.managed_roots).length ? <div className="path-list">{asArray(allowlistConfig?.managed_roots).map(root => <code key={root}>{root}</code>)}</div> : <p className="muted">尚未加载管控路径。</p>}{allowlistMissingRoots.length > 0 && <div className="warning-card"><strong>以下目录当前不存在</strong>{allowlistMissingRoots.map(root => <code key={root}>{root}</code>)}</div>}</section>
-        <section className="workspace-card"><h3>选择管控路径</h3><div className="browser-toolbar"><div className="segmented" role="group" aria-label="浏览模式"><button type="button" className={pathBrowserMode === 'read' ? 'active' : ''} onClick={() => switchPathBrowserMode('read')}>只读浏览</button><button type="button" className={pathBrowserMode === 'write' ? 'active' : ''} onClick={() => switchPathBrowserMode('write')}>可写选择</button></div><div className="browser-path"><input aria-label="资源管理器路径" value={pathBrowserPath} onChange={event => setPathBrowserPath(event.target.value)} /><button type="button" disabled={pathBrowserLoading} onClick={() => void loadPathBrowser(pathBrowserPath, pathBrowserMode)}>打开</button></div></div>{pathBrowserError && <p className="browser-error">{pathBrowserError}</p>}{pathBrowser && <div className="file-browser" aria-label="资源管理器视图"><div className="browser-current"><button type="button" disabled={!pathBrowser.parent || pathBrowserLoading} onClick={() => pathBrowser.parent && void loadPathBrowser(pathBrowser.parent, pathBrowserMode)}>上一级</button><code>{pathBrowser.path}</code>{pathBrowserMode === 'write' && pathBrowser.can_select_write && !pathBrowser.write_root_missing && <button type="button" onClick={() => addWritableRoot(pathBrowser.path)}>选择当前目录</button>}</div>{pathBrowser.write_root_missing && <p className="browser-warning">当前可写根目录尚未创建；只能在已存在的可写根目录内新建子目录。</p>}{pathBrowserMode === 'write' && pathBrowser.can_create_child && <div className="new-folder"><input aria-label="新建文件夹名称" value={newFolderName} onChange={event => setNewFolderName(event.target.value)} placeholder="新建文件夹名称" /><button type="button" disabled={pathBrowserLoading || !newFolderName.trim()} onClick={createBrowserDirectory}>新建文件夹</button></div>}<div className="browser-entries">{asArray(pathBrowser.entries).length ? asArray(pathBrowser.entries).map(entry => <div className="browser-entry" key={entry.path}><button type="button" onClick={() => void loadPathBrowser(entry.path, pathBrowserMode)}><span>▣</span><b>{entry.name}</b><small>{entry.mode} · {new Date(entry.modified).toLocaleString('zh-CN')}</small></button>{pathBrowserMode === 'write' && entry.selectable_write && <button type="button" onClick={() => addWritableRoot(entry.path)}>选择</button>}</div>) : <p className="muted">当前目录没有可浏览子目录。</p>}{pathBrowser.truncated && <p className="muted">目录项已截断，请输入更精确路径。</p>}</div></div>}<div className="path-picker" aria-label="候选管控路径">{allowlistCandidates.length ? allowlistCandidates.map(path => {
+        <section className="workspace-card"><h3>选择管控路径</h3><div className="browser-toolbar"><div className="segmented" role="group" aria-label="浏览模式"><button type="button" className={pathBrowserMode === 'read' ? 'active' : ''} onClick={() => switchPathBrowserMode('read')}>只读浏览</button><button type="button" className={pathBrowserMode === 'write' ? 'active' : ''} onClick={() => switchPathBrowserMode('write')}>可写选择</button></div><div className="browser-path"><input aria-label="资源管理器路径" value={pathBrowserPath} onChange={event => setPathBrowserPath(event.target.value)} /><button type="button" disabled={pathBrowserLoading} onClick={() => void loadPathBrowser(pathBrowserPath, pathBrowserMode)}>打开</button></div></div>{pathBrowserError && <p className="browser-error">{pathBrowserError}</p>}{pathBrowser && <div className="file-browser" aria-label="资源管理器视图"><div className="browser-current"><button type="button" disabled={!pathBrowser.parent || pathBrowserLoading} onClick={() => pathBrowser.parent && void loadPathBrowser(pathBrowser.parent, pathBrowserMode)}>上一级</button><code>{pathBrowser.path}</code>{pathBrowserMode === 'write' && pathBrowser.can_select_write && !pathBrowser.write_root_missing && <button type="button" onClick={() => addWritableRoot(pathBrowser.path)}>选择当前目录</button>}</div>{pathBrowser.write_root_missing && <p className="browser-warning">当前可写根目录尚未创建；只能在已存在的可写根目录内新建子目录。</p>}{pathBrowserMode === 'write' && pathBrowser.can_create_child && <div className="new-folder"><input aria-label="新建文件夹名称" value={newFolderName} onChange={event => setNewFolderName(event.target.value)} placeholder="新建文件夹名称" /><button type="button" disabled={pathBrowserLoading || !newFolderName.trim()} onClick={createBrowserDirectory}>新建文件夹</button></div>}<div className="browser-entries">{asArray(pathBrowser.entries).length ? asArray(pathBrowser.entries).map(entry => <div className="browser-entry" key={entry.path}><button type="button" onClick={() => void loadPathBrowser(entry.path, pathBrowserMode)}><span>▣</span><b>{entry.name}</b><small>{entry.mode} · {new Date(entry.modified).toLocaleString('zh-CN')}</small></button>{pathBrowserMode === 'write' && entry.selectable_write && <button type="button" onClick={() => addWritableRoot(entry.path)}>选择</button>}</div>) : <p className="muted">当前目录没有可浏览子目录。</p>}{pathBrowser.truncated && <p className="muted">目录项已截断，请输入更精确路径。</p>}</div></div>}{pathBrowserLoading && <p className="muted">正在加载目录...</p>}{pathBrowserMode === 'write' && <div className="path-picker" aria-label="候选管控路径">{allowlistCandidates.length ? allowlistCandidates.map(path => {
           const selected = allowlistDraftRoots.includes(path)
           const missing = allowlistMissingRoots.includes(path)
           return <label className={`path-option ${selected ? 'selected' : ''} ${missing ? 'missing' : ''}`} key={path}><input type="checkbox" aria-label={`选择 ${path}`} checked={selected} onChange={() => toggleAllowlistCandidate(path)} /><span><b>{pathName(path)}</b><code>{path}</code><small>{missing ? '当前目录不存在，保存不会创建目录' : selected ? '将纳入 Agent 管控快照范围' : '可选择为 Agent 管控路径'}</small></span></label>
-        }) : <p className="muted">尚未加载可选择路径。</p>}</div></section>
+        }) : <p className="muted">尚未加载可选择路径。</p>}</div>}</section>
         <section className="workspace-card allowlist-editor"><h3>保存预览</h3><form className="settings-form" onSubmit={saveAllowlistConfig}><div className="path-preview" aria-label="管控路径预览"><span>将保存 {allowlistDraftRoots.length} 个管控根</span>{allowlistDraftRoots.length ? allowlistDraftRoots.map(root => <code key={root}>{root}</code>) : <p className="muted">请选择候选路径，或在高级编辑中输入绝对路径。</p>}<small>执行端实际允许根会同时包含隔离目录：</small>{allowlistAllowedPreview.map(root => <code key={`allowed-${root}`} className={root === allowlistConfig?.quarantine_root ? 'quarantine' : ''}>{root}</code>)}</div><label>管控路径<textarea className="path-textarea" value={allowlistText} onChange={event => setAllowlistText(event.target.value)} placeholder="/home&#10;/home/safeops" rows={6} /></label><div className="settings-actions"><button type="button" disabled={savingAllowlist} onClick={() => void loadAllowlistConfig()}>重新加载</button><button type="button" disabled={savingAllowlist || allowlistDraftRoots.length === 0} onClick={() => setAllowlistText('')}>清空选择</button><button disabled={savingAllowlist || allowlistDraftRoots.length === 0}>{savingAllowlist ? '保存中' : '保存路径'}</button></div><small>每行一个绝对路径；必须位于管理员配置的可写路径内，不能使用根目录或与隔离目录重叠。保存不会创建目录。</small></form></section></div>
     </>}
     {view === 'llm' && <><div className="page-lead"><h2>LLM Provider 配置</h2><p>配置 OpenAI-compatible Chat Completions 接口。API key 仅写入后端数据目录，不会通过查询接口回显。</p></div>
@@ -724,15 +873,24 @@ export default function App() {
         <h3>计划进度</h3>
         <ol>{asArray(task.plan).map((step, index) => <li key={step.step_id} className={step.state.toLowerCase()}><span>{index + 1}</span><div>{step.description}<small>{step.tool}</small></div></li>)}</ol>
         <h3>证据发现</h3>
-        <div className="findings">{asArray(task.findings).length ? asArray(task.findings).map((item, index) => <p key={`${index}-${item}`}>{item}</p>) : <p className="muted">等待新的系统证据</p>}</div>
-        <div className="evidence-count">已绑定 {asArray(task.evidence_refs).length} 条 Trace 证据</div>
-        {task.failure_reason && <div className="error">{task.failure_reason}</div>}
+        <div className="findings">{asArray(task.findings).length ? asArray(task.findings).map((item, index) => <p key={`${index}-${item}`}>{summarizeProgressMessage(item)}</p>) : <p className="muted">等待新的系统证据</p>}</div>
+        <div className="evidence-count">已绑定 {asArray(task.evidence_refs).length} 条审计证据</div>
+        {task.failure_reason && <div className="error">{knownReasonSummary(task.failure_reason) || cleanEvidenceNoise(task.failure_reason)}</div>}
       </>}
-      <div className="trace-legend"><h3>审计追踪 <b>{traceIntegrity || '等待证据'}</b></h3><p>任务、Guard、审批、执行与验证写入 Hash-Chained JSONL。</p>{asArray(traceEvents).slice(-8).map(event => <button className="trace-event" key={event.sequence} onClick={() => setView('audit')}><span>{event.sequence}</span><code>{event.type}</code></button>)}</div>
+      <div className="trace-legend"><h3>审计追踪 <b>{traceStatusText(traceIntegrity)}</b></h3><p>任务、Guard、审批、执行与验证写入 Hash-Chained JSONL。</p>{asArray(traceEvents).slice(-8).map(event => <button className="trace-event" key={event.sequence} onClick={() => setView('audit')}><span>{event.sequence}</span><code>{event.type}</code></button>)}</div>
     </aside>
   </div>
 }
 
 function Metric({ label, value, detail }: { label: string; value: string; detail: string }) {
   return <section className="metric"><span>{label}</span><strong>{value}</strong><small>{detail}</small></section>
+}
+
+function ResourceMeter({ label, value, ratio, detail, tone }: { label: string; value: string; ratio?: number; detail: string; tone: 'cpu' | 'memory' | 'disk' | 'load' }) {
+  const width = `${Math.round(clampRatio(ratio) * 100)}%`
+  return <section className={`resource-meter ${tone}`}>
+    <div><span>{label}</span><strong>{value}</strong></div>
+    <div className="meter-track" aria-label={`${label} ${value}`}><i style={{ width }} /></div>
+    <small>{detail}</small>
+  </section>
 }

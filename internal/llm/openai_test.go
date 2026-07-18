@@ -54,6 +54,9 @@ func TestDecisionSystemPromptConstrainsAmbiguousFollowupsToSelectedResources(t *
 	if !strings.Contains(decisionSystemPrompt, "managed_action is not command execution") || !strings.Contains(decisionSystemPrompt, "direct shell, terminal, command, or bash execution") {
 		t.Fatal("system prompt does not define managed action command guardrails")
 	}
+	if !strings.Contains(decisionSystemPrompt, "Simplified Chinese") || !strings.Contains(decisionSystemPrompt, "final_answer") {
+		t.Fatal("system prompt does not require Chinese user-facing answers")
+	}
 }
 
 func TestOpenAICompatibleUsesExtendedDefaultTimeout(t *testing.T) {

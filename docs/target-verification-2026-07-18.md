@@ -2,6 +2,13 @@
 
 Audit date: 2026-07-18. Maintainer verdict: the evidence below is sufficient to promote only the named capabilities to `TARGET_VERIFIED`.
 
+Evidence identities, candidate-to-merge mappings, checksums, and the boundary
+between Git-tracked material and the maintainers' restricted raw archive are
+indexed in [`docs/evidence`](evidence/README.md). Raw reports, Task/Trace
+exports, browser captures, screenshots, and release archives are not tracked
+in this repository; a fresh clone can validate their recorded identities but
+cannot recompute their hashes without obtaining the external artifacts.
+
 ## Release identity
 
 - Merged commit: `1a10880fd8ae200eb3fa9964943e4112f4cbf6a8` (PR #14).
@@ -28,7 +35,7 @@ Generated reports intentionally retain `target_verified=false`. That field preve
 
 ## Complete MCP native-call follow-up
 
-Runtime commit `b5383e9` extended the target test from one representative memory call to a unique, individually time-bounded call for every discovered Tool. Its full release gates passed, the LoongArch64 archive SHA-256 was `380660f64e08936f3f0581f94400bf3cedc3b51916ec21ea82cf706971b32076`, and the exact bundle was installed before the final run.
+Candidate runtime `b5383e9` extended the target test from one representative memory call to a unique, individually time-bounded call for every discovered Tool. The candidate object was not retained after squash merge; its repository-resolvable source is merge commit `816f8cf` (PR #21), with the mapping recorded in the evidence manifest. Its full release gates passed, the LoongArch64 archive SHA-256 was `380660f64e08936f3f0581f94400bf3cedc3b51916ec21ea82cf706971b32076`, and the exact candidate bundle was installed before the final run.
 
 The first expanded target run exposed that the unquoted comma in the YAML `mcp-config` root argument left `/var/lib/safeops/lab/config` outside the effective allowlist. Issues #19 and #20 record the coverage gap and manifest defect. Both development and installed manifests now preserve `/etc/safeops,/var/lib/safeops/lab/config` as one argument, with a load-time regression test for each file.
 
@@ -69,7 +76,7 @@ The port, CPU, disk and injection tasks were first executed on ancestor release 
 
 ## Installed browser audit follow-up
 
-Runtime commit `2b26de4` added an explicit SVG favicon to the bundled Web assets and an API regression test for its MIME type and security headers. Its complete release gates passed, the LoongArch64 archive SHA-256 was `0accff7af8ad7eaecabe4e262f4cbc1fa6caa9359f34615e5927174af8d135f8`, and that exact bundle was checksum-verified and installed on the target before browser capture.
+Candidate runtime `2b26de4` added an explicit SVG favicon to the bundled Web assets and an API regression test for its MIME type and security headers. The candidate object was not retained after squash merge; its repository-resolvable source is `7479752` (PR #23). Its complete release gates passed, the LoongArch64 archive SHA-256 was `0accff7af8ad7eaecabe4e262f4cbc1fa6caa9359f34615e5927174af8d135f8`, and that exact candidate bundle was checksum-verified and installed on the target before browser capture.
 
 A clean real Google Chrome session on the Ubuntu operator host traversed the target-served UI through a fixed read-only SSH proxy to target loopback. The proxy accepted only a bounded GET/HEAD allowlist; it did not provide any write or arbitrary-command surface. Console, Overview, Tool, Safety, RCA, Audit, Allowlist and LLM views each reached their expected heading and loaded target-backed data. Overview showed 8/8 healthy MCP Servers and 39 discovered Tools; the Tool page rendered eight Server cards; Allowlist loaded the active managed roots; LLM showed the configured Provider/model while the secret field remained empty and no key was recorded.
 
@@ -89,7 +96,7 @@ The benchmark dangerous-target cases evaluate the production Guard only; executi
 
 ## Native Collector and adapter follow-up
 
-Issue #26 tracked the missing target execution evidence for the seven production Collectors. Candidate runtime `053fc2c` passed Go test/vet, the installer environment regression, 14 frontend tests, frontend lint/build and all 16 commands for linux/amd64 and linux/loong64 with `CGO_ENABLED=0`. Its LoongArch64 archive SHA-256 was `d342dd4ed374cfe1b0f2145dd55dbf7eb8ce9c38e77a901a4b102e554a574ef8`.
+Issue #26 tracked the missing target execution evidence for the seven production Collectors. Candidate runtime `053fc2c` was squash-merged as repository commit `4861dcf` (PR #27); the ephemeral candidate object is not retained in the public Git graph. It passed Go test/vet, the installer environment regression, 14 frontend tests, frontend lint/build and all 16 commands for linux/amd64 and linux/loong64 with `CGO_ENABLED=0`. Its LoongArch64 archive SHA-256 was `d342dd4ed374cfe1b0f2145dd55dbf7eb8ce9c38e77a901a4b102e554a574ef8`.
 
 The first native candidate correctly failed because the allowlisted Lab configuration directory was empty: six Collectors and both adapters passed, while `config_change` returned no valid observations. The follow-up kept empty results fail-closed, added a bounded SafeFS snapshot for a single allowlisted file, and pointed the production configuration Collector at the installed, non-secret `/etc/safeops/mcp_servers.yaml` manifest. It reads only metadata and a bounded hash in memory; neither the hash nor any Observation value is written to the target report.
 

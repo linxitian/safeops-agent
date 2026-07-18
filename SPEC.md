@@ -100,5 +100,4 @@ Dependency direction is inward: OS access is centralized in `internal/platform`;
 
 ## Definition of done
 
-Done requires all core rows in the competition matrix to be `TESTED`, deployment/target rows to be `TARGET_VERIFIED`, all Go commands to build for linux/amd64 and linux/loong64, target probe/test and primary demo reports from the official VM, real benchmark reports without fabricated values, complete install/uninstall/release artifacts, and requirement-by-requirement evidence. Current status is not done; see `STATUS.md`.
-
+Done requires all core rows in the competition matrix to be `TESTED`, deployment/target rows to be `TARGET_VERIFIED`, all Go commands to build for linux/amd64 and linux/loong64, target probe/test and primary demo reports from the official VM, real benchmark reports without fabricated values, complete install/uninstall/release artifacts, and requirement-by-requirement evidence. As of 2026-07-18, the defined deliverables meet this threshold for the explicitly audited scopes; remaining engineering gaps are tracked separately in `STATUS.md` and do not broaden any `TARGET_VERIFIED` claim.

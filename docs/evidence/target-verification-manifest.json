@@ -1,0 +1,56 @@
+{
+  "schema_version": 1,
+  "audit_date": "2026-07-18",
+  "evidence_availability": "maintainer_external_archive_not_tracked_in_git",
+  "repository": "https://github.com/robll-v1/safeops-agent1.git",
+  "runs": [
+    {
+      "scope": "initial_provider_and_controlled_workflows",
+      "source_commit": "1a10880fd8ae200eb3fa9964943e4112f4cbf6a8",
+      "source_commit_available_in_repository": true,
+      "release_sha256": "4af422c722d267b24efa3f7f16d2536f9ee475dd99326ba2d9247d13e1283945",
+      "report_ids": [
+        "target_0f70b837d6ab5d7c72bd",
+        "target_3ca1769f7eb00323a1d8",
+        "target_d05c9711293c083a26c2"
+      ]
+    },
+    {
+      "scope": "all_39_mcp_tool_calls",
+      "candidate_commit": "b5383e9",
+      "candidate_commit_available_in_repository": false,
+      "merged_commit": "816f8cfeb22d80b63152434f93926829966047ee",
+      "release_sha256": "380660f64e08936f3f0581f94400bf3cedc3b51916ec21ea82cf706971b32076",
+      "report_ids": ["target_ae6d4bbeb9ae7b8e5764"]
+    },
+    {
+      "scope": "installed_chrome_eight_view_audit",
+      "candidate_commit": "2b26de4",
+      "candidate_commit_available_in_repository": false,
+      "merged_commit": "7479752df7d29272f3a08441b26a887b8bb388e0",
+      "release_sha256": "0accff7af8ad7eaecabe4e262f4cbc1fa6caa9359f34615e5927174af8d135f8",
+      "browser_audit_sha256": "0e3d98cf68c694a58300e8c459b5eeb9bbfd796be0d8c0734a09de303d831101"
+    },
+    {
+      "scope": "exact_merged_mcp_calls_and_native_benchmark",
+      "source_commit": "7479752df7d29272f3a08441b26a887b8bb388e0",
+      "source_commit_available_in_repository": true,
+      "release_sha256": "6b2aa3220af27ac24a5c407be9df23ab82e203a878913d4a414868dc76d910a8",
+      "report_ids": ["target_7a42c5e387e7abeea4f8"],
+      "target_report_json_sha256": "92847f3820226913b8d3863be5facc73d0b92cf6bdca9634988c7431ca83487c",
+      "target_report_text_sha256": "2c5d3f7175e64e7c75ee6cd4eaadb04a8625ab3d064098e00717ebf0f1c9aba6",
+      "benchmark_json_sha256": "03538c50a122b44a71f2e6adcc651a104a32a2fcc0e124afba703a8813a9dc24",
+      "benchmark_markdown_sha256": "9dcbc364e112dc135b6d5b1725caf89bac3ea1076b4fb75ae2529051c707b78d"
+    },
+    {
+      "scope": "native_collectors_and_adapter_models",
+      "candidate_commit": "053fc2c",
+      "candidate_commit_available_in_repository": false,
+      "merged_commit": "4861dcfb4f7c8a61aaff3dc9d199af1460b2f4b2",
+      "release_sha256": "d342dd4ed374cfe1b0f2145dd55dbf7eb8ce9c38e77a901a4b102e554a574ef8",
+      "report_ids": ["target_df68d477155fd8d55d75"],
+      "target_report_json_sha256": "cb550695d5d3af42cc30ec55cab0500ff68b79b0f86bee8836438e27affadf77",
+      "target_report_text_sha256": "45af6344f28da0aafb317370183ea33f71c5369d760710259fc9b10192e69f15"
+    }
+  ]
+}

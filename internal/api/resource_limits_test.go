@@ -117,9 +117,14 @@ func TestConcurrentAdmissionsCannotExceedTaskRetentionLimit(t *testing.T) {
 		t.Fatal(err)
 	}
 	now := time.Now().UTC()
-	value := session.Session{ID: "ses_race", Name: "race", CreatedAt: now, UpdatedAt: now}
-	if err := store.SaveSession(ctx, value); err != nil {
-		t.Fatal(err)
+	sessions := []session.Session{
+		{ID: "ses_race_1", Name: "race 1", CreatedAt: now, UpdatedAt: now},
+		{ID: "ses_race_2", Name: "race 2", CreatedAt: now, UpdatedAt: now},
+	}
+	for _, value := range sessions {
+		if err := store.SaveSession(ctx, value); err != nil {
+			t.Fatal(err)
+		}
 	}
 	traceWriter, err := trace.NewWriter(store.Root() + "/traces")
 	if err != nil {
@@ -129,13 +134,13 @@ func TestConcurrentAdmissionsCannotExceedTaskRetentionLimit(t *testing.T) {
 	server := New(store, registry.New(registry.Config{}), orchestrator, traceWriter, WithLimits(Limits{MaxConcurrentTasks: 2, MaxTasks: 1}))
 	responses := make(chan int, 2)
 	var group sync.WaitGroup
-	for range 2 {
+	for _, value := range sessions {
 		group.Add(1)
-		go func() {
+		go func(sessionID string) {
 			defer group.Done()
-			response := requestJSON(t, server.Handler(), http.MethodPost, "/api/v1/sessions/"+value.ID+"/messages", map[string]any{"content": "inspect"})
+			response := requestJSON(t, server.Handler(), http.MethodPost, "/api/v1/sessions/"+sessionID+"/messages", map[string]any{"content": "inspect"})
 			responses <- response.Code
-		}()
+		}(value.ID)
 	}
 	group.Wait()
 	close(responses)

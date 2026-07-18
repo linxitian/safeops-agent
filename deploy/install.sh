@@ -49,6 +49,7 @@ for binary in "${required_binaries[@]}"; do
   [[ -f "$bundle_root/bin/$binary" ]] || fail "required binary is missing: $binary"
 done
 [[ -f "$bundle_root/web/index.html" ]] || fail "prebuilt frontend index.html is missing"
+safeops_validate_version_source "$bundle_root/VERSION" || fail "bundle VERSION is invalid"
 
 if ! getent group safeops >/dev/null; then
   groupadd --system safeops || fail "could not create safeops group"
@@ -113,7 +114,8 @@ systemctl restart safeops-server.service || fail "safeops-server failed to start
 health_url="http://127.0.0.1:8080/healthz"
 for _ in {1..30}; do
   if curl --fail --silent --show-error --max-time 3 "$health_url" >/dev/null; then
-    version="$(tr -d '\r\n' < "$bundle_root/VERSION")"
+    safeops_install_version "$bundle_root/VERSION" /opt/safeops/VERSION root root || fail "could not publish healthy release version metadata"
+    version="$(tr -d '\r\n' < /opt/safeops/VERSION)"
     echo "SafeOps $version installed successfully; health: $health_url"
     echo "Executor mode is configured in /etc/safeops/safeops.env; Lab units are installed but not enabled."
     exit 0

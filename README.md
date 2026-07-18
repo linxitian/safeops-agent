@@ -240,7 +240,7 @@ dist/release/safeops-agent-linux-loong64.tar.gz
 dist/release/safeops-agent-linux-loong64.tar.gz.sha256
 ```
 
-包内含 16 个静态 LoongArch ELF、预构建中文 Web、绝对路径 MCP Manifest、Policy、Knowledge、hardened systemd units、`VERSION` 和逐文件 `SHA256SUMS`。`deploy/install.sh` 检查 root、Linux/LoongArch64、systemd、必要工具与双层哈希，创建非 root `safeops` 用户及规定目录，安装全部内容、设置权限、启动两个核心服务并轮询 `/healthz`。执行器默认 `dry-run`；仅可用 `SAFEOPS_EXECUTOR_MODE=lab` 显式开启固定 Lab Handler。四个异常复现 unit 只安装，不自动启用。
+包内含 16 个静态 LoongArch ELF、预构建中文 Web、绝对路径 MCP Manifest、Policy、Knowledge、hardened systemd units、`VERSION` 和逐文件 `SHA256SUMS`。`deploy/install.sh` 检查 root、Linux/LoongArch64、systemd、必要工具与双层哈希，创建非 root `safeops` 用户及规定目录，安装全部内容、以 `/opt/safeops/VERSION` 原子发布已校验的精确版本身份、设置权限、启动两个核心服务并轮询 `/healthz`。执行器默认 `dry-run`；仅可用 `SAFEOPS_EXECUTOR_MODE=lab` 显式开启固定 Lab Handler。四个异常复现 unit 只安装，不自动启用。
 
 `deploy/uninstall.sh` 停止/移除服务和程序但默认保留 `/var/lib/safeops`；只有显式 `--purge-data` 才删除持久 Session、Task、审批、Trace、隔离与 Lab 数据。官方目标机默认卸载已确认 `/opt`、`/etc` 和六个 unit 被移除，而 140 个持久文件哈希及 153 条元数据完全不变；root-only 恢复 `safeops.env` 与 `privexec.hmac` 后，重装保持了 LLM、审批签名和历史 Trace 连续性。具体操作见 [部署文档](deploy/README.md)。
 

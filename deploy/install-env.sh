@@ -100,3 +100,98 @@ safeops_update_env() {
   fi
   umask "$old_umask"
 }
+
+# safeops_validate_version_identifier is shared by the release builder and the
+# target installer so an archive cannot be produced with an identity the target
+# would reject.
+safeops_validate_version_identifier() {
+  if [[ "$#" -ne 1 ]]; then
+    echo "SafeOps version validation requires one identifier" >&2
+    return 1
+  fi
+  if [[ ! "$1" =~ ^[A-Za-z0-9][A-Za-z0-9._+-]{0,127}$ ]]; then
+    echo "SafeOps version must be one bounded release identifier" >&2
+    return 1
+  fi
+}
+
+# safeops_validate_version_source performs the file safety and release identity
+# checks without changing the host. The installer calls it during preflight and
+# the final publisher calls it again immediately before atomic replacement.
+safeops_validate_version_source() {
+  if [[ "$#" -ne 1 ]]; then
+    echo "SafeOps version validation requires one source" >&2
+    return 1
+  fi
+
+  local version_source="$1"
+  if [[ "$version_source" != /* ]]; then
+    echo "SafeOps version source path must be absolute" >&2
+    return 1
+  fi
+  if [[ ! -f "$version_source" || -L "$version_source" ]]; then
+    echo "SafeOps version source must be a regular non-symlink file" >&2
+    return 1
+  fi
+  if [[ -e "$version_destination" || -L "$version_destination" ]]; then
+    if [[ ! -f "$version_destination" || -L "$version_destination" ]]; then
+      echo "SafeOps version destination must be a regular non-symlink file" >&2
+      return 1
+    fi
+  fi
+
+  local version_lines=()
+  mapfile -t version_lines < "$version_source"
+  if [[ "${#version_lines[@]}" -ne 1 ]]; then
+    echo "SafeOps version must be one bounded release identifier" >&2
+    return 1
+  fi
+  safeops_validate_version_identifier "${version_lines[0]}"
+}
+
+# safeops_install_version validates and atomically installs the public release
+# identity. The installer supplies root ownership; tests use the current user
+# inside an isolated directory.
+safeops_install_version() {
+  if [[ "$#" -ne 4 ]]; then
+    echo "SafeOps version install requires source, destination, owner, and group" >&2
+    return 1
+  fi
+
+  local version_source="$1"
+  local version_destination="$2"
+  local version_owner="$3"
+  local version_group="$4"
+  if [[ "$version_destination" != /* ]]; then
+    echo "SafeOps version destination path must be absolute" >&2
+    return 1
+  fi
+  safeops_validate_version_source "$version_source" || return 1
+  if [[ -e "$version_destination" || -L "$version_destination" ]]; then
+    if [[ ! -f "$version_destination" || -L "$version_destination" ]]; then
+      echo "SafeOps version destination must be a regular non-symlink file" >&2
+      return 1
+    fi
+  fi
+
+  local version_dir="${version_destination%/*}"
+  if [[ ! -d "$version_dir" ]]; then
+    echo "SafeOps version destination directory is missing" >&2
+    return 1
+  fi
+  local version_tmp
+  if ! version_tmp="$(mktemp "$version_dir/.VERSION.XXXXXX")"; then
+    echo "SafeOps version temporary file creation failed" >&2
+    return 1
+  fi
+  if ! install -m 0644 -o "$version_owner" -g "$version_group" -- "$version_source" "$version_tmp"; then
+    rm -f -- "$version_tmp"
+    echo "SafeOps version metadata install failed" >&2
+    return 1
+  fi
+  if ! mv -fT -- "$version_tmp" "$version_destination"; then
+    rm -f -- "$version_tmp"
+    echo "SafeOps version atomic replacement failed" >&2
+    return 1
+  fi
+}

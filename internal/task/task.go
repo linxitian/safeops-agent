@@ -42,6 +42,7 @@ type RuntimeGuardFeedback struct {
 	Tool            string   `json:"tool"`
 	AttemptedPath   string   `json:"attempted_path,omitempty"`
 	AuthorizedPaths []string `json:"authorized_paths,omitempty"`
+	ExcludedPaths   []string `json:"excluded_paths,omitempty"`
 }
 
 type RuntimeCheckpoint struct {

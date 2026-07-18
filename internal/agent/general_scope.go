@@ -20,6 +20,7 @@ var requestAbsolutePath = regexp.MustCompile(`/[^\s"'，。；;]+`)
 type generalReadScope struct {
 	ResourceType    string
 	AuthorizedPaths []string
+	ExcludedPaths   []string
 	Source          string
 }
 
@@ -31,7 +32,7 @@ type readScopeViolation struct {
 }
 
 func deriveGeneralReadScope(request string, selectedResources []string) *generalReadScope {
-	paths := requestScopePaths(request)
+	paths, excluded := requestPathScopes(request)
 	source := "request"
 	if len(paths) == 0 && isAmbiguousResourceFollowup(request) && !mentionsExplicitNonFileTopic(request) {
 		paths = normalizedUniquePaths(selectedResources)
@@ -40,24 +41,36 @@ func deriveGeneralReadScope(request string, selectedResources []string) *general
 	if len(paths) == 0 {
 		return nil
 	}
-	return &generalReadScope{ResourceType: "file", AuthorizedPaths: paths, Source: source}
+	return &generalReadScope{ResourceType: "file", AuthorizedPaths: paths, ExcludedPaths: excluded, Source: source}
 }
 
 func requestScopePaths(request string) []string {
+	paths, _ := requestPathScopes(request)
+	return paths
+}
+
+func requestPathScopes(request string) ([]string, []string) {
 	paths := make([]string, 0, 4)
+	excluded := make([]string, 0, 2)
 	lower := strings.ToLower(request)
 	for _, alias := range []string{"safeops lab", "safeops 实验区", "safeops实验区"} {
-		if index := strings.Index(lower, alias); index >= 0 && !readScopeMentionNegated(lower, index) {
-			paths = append(paths, safeOpsLabReadRoot)
+		if index := strings.Index(lower, alias); index >= 0 {
+			if readScopeMentionNegated(lower, index) {
+				excluded = append(excluded, safeOpsLabReadRoot)
+			} else {
+				paths = append(paths, safeOpsLabReadRoot)
+			}
 			break
 		}
 	}
 	for _, match := range requestAbsolutePath.FindAllStringIndex(request, -1) {
-		if !readScopeMentionNegated(request, match[0]) {
+		if readScopeMentionNegated(request, match[0]) {
+			excluded = append(excluded, request[match[0]:match[1]])
+		} else {
 			paths = append(paths, request[match[0]:match[1]])
 		}
 	}
-	return normalizedUniquePaths(paths)
+	return normalizedUniquePaths(paths), normalizedUniquePaths(excluded)
 }
 
 func readScopeMentionNegated(request string, mentionStart int) bool {
@@ -153,6 +166,14 @@ func validateGeneralReadScope(scope *generalReadScope, decision llm.Decision) *r
 	if scope == nil || decision.Kind != llm.DecisionTool {
 		return nil
 	}
+	tool := decision.ServerID + "/" + decision.Tool
+	if !fileScopedReadTool(tool) {
+		return &readScopeViolation{
+			Code:    "REQUEST_READ_SCOPE_TOOL_MISMATCH",
+			Summary: "文件范围任务只能选择文件元数据、文件系统容量或磁盘压力的路径受限工具",
+			Tool:    tool,
+		}
+	}
 	pathValue, hasPath := decision.Arguments["path"]
 	if !hasPath {
 		if decision.ServerID == "file" && decision.Tool == "file.list_roots" {
@@ -161,7 +182,7 @@ func validateGeneralReadScope(scope *generalReadScope, decision llm.Decision) *r
 		return &readScopeViolation{
 			Code:    "REQUEST_READ_SCOPE_PATH_REQUIRED",
 			Summary: "文件范围任务只能选择携带受权 path 的只读工具；file.list_roots 仅可用于发现根目录",
-			Tool:    decision.ServerID + "/" + decision.Tool,
+			Tool:    tool,
 		}
 	}
 	path, ok := pathValue.(string)
@@ -169,11 +190,21 @@ func validateGeneralReadScope(scope *generalReadScope, decision llm.Decision) *r
 		return &readScopeViolation{
 			Code:          "REQUEST_READ_SCOPE_PATH_INVALID",
 			Summary:       "文件范围任务要求绝对 path，且该 path 必须位于本次请求的受权范围内",
-			Tool:          decision.ServerID + "/" + decision.Tool,
+			Tool:          tool,
 			AttemptedPath: strings.TrimSpace(path),
 		}
 	}
 	path = filepath.Clean(path)
+	for _, excluded := range scope.ExcludedPaths {
+		if pathWithinScope(excluded, path) || pathWithinScope(path, excluded) {
+			return &readScopeViolation{
+				Code:          "REQUEST_READ_SCOPE_EXCLUDED",
+				Summary:       "工具 path 位于操作员明确排除的路径内，或会遍历到该排除路径",
+				Tool:          tool,
+				AttemptedPath: path,
+			}
+		}
+	}
 	for _, authorized := range scope.AuthorizedPaths {
 		if pathWithinScope(authorized, path) {
 			return nil
@@ -182,8 +213,17 @@ func validateGeneralReadScope(scope *generalReadScope, decision llm.Decision) *r
 	return &readScopeViolation{
 		Code:          "REQUEST_READ_SCOPE_MISMATCH",
 		Summary:       "工具 path 超出操作员本次请求或会话已选资源的受权范围",
-		Tool:          decision.ServerID + "/" + decision.Tool,
+		Tool:          tool,
 		AttemptedPath: path,
+	}
+}
+
+func fileScopedReadTool(tool string) bool {
+	switch tool {
+	case "file/file.list_roots", "file/file.stat", "file/file.list_directory", "file/file.sha256", "file/file.find_large", "system/system.get_disk_usage", "diagnostic/diagnostic.disk_pressure":
+		return true
+	default:
+		return false
 	}
 }
 
@@ -204,6 +244,7 @@ func plannerReadScope(scope *generalReadScope) *llm.ReadScope {
 	return &llm.ReadScope{
 		ResourceType:    scope.ResourceType,
 		AuthorizedPaths: append([]string(nil), scope.AuthorizedPaths...),
+		ExcludedPaths:   append([]string(nil), scope.ExcludedPaths...),
 		Source:          scope.Source,
 	}
 }
@@ -217,6 +258,7 @@ func plannerGuardFeedback(values []task.RuntimeGuardFeedback) []llm.GuardFeedbac
 			Tool:            value.Tool,
 			AttemptedPath:   value.AttemptedPath,
 			AuthorizedPaths: append([]string(nil), value.AuthorizedPaths...),
+			ExcludedPaths:   append([]string(nil), value.ExcludedPaths...),
 		})
 	}
 	return out
@@ -231,6 +273,7 @@ func appendRuntimeGuardFeedback(checkpoint *task.RuntimeCheckpoint, scope *gener
 	}
 	if scope != nil {
 		feedback.AuthorizedPaths = append([]string(nil), scope.AuthorizedPaths...)
+		feedback.ExcludedPaths = append([]string(nil), scope.ExcludedPaths...)
 	}
 	checkpoint.GuardFeedback = append(checkpoint.GuardFeedback, feedback)
 	if len(checkpoint.GuardFeedback) > maxRuntimeGuardFeedback {

@@ -66,6 +66,7 @@ type SessionContext struct {
 type ReadScope struct {
 	ResourceType    string   `json:"resource_type"`
 	AuthorizedPaths []string `json:"authorized_paths"`
+	ExcludedPaths   []string `json:"excluded_paths,omitempty"`
 	Source          string   `json:"source"`
 }
 
@@ -75,6 +76,7 @@ type GuardFeedback struct {
 	Tool            string   `json:"tool"`
 	AttemptedPath   string   `json:"attempted_path,omitempty"`
 	AuthorizedPaths []string `json:"authorized_paths,omitempty"`
+	ExcludedPaths   []string `json:"excluded_paths,omitempty"`
 }
 
 type DecisionRequest struct {

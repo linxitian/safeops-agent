@@ -47,6 +47,22 @@ func TestDeriveGeneralReadScopeFromRequestAndSelectedResources(t *testing.T) {
 	if len(englishClauses) != 1 || englishClauses[0] != "/var/log" {
 		t.Fatalf("ASCII punctuation did not isolate a positive path clause: %+v", englishClauses)
 	}
+	excluded := deriveGeneralReadScope("inspect /var/log except /var/log/private", nil)
+	if excluded == nil || len(excluded.AuthorizedPaths) != 1 || excluded.AuthorizedPaths[0] != "/var/log" || len(excluded.ExcludedPaths) != 1 || excluded.ExcludedPaths[0] != "/var/log/private" {
+		t.Fatalf("a descendant exclusion was not preserved: %+v", excluded)
+	}
+	parentScan := llm.Decision{Kind: llm.DecisionTool, ServerID: "file", Tool: "file.find_large", Arguments: map[string]any{"path": "/var/log"}}
+	if violation := validateGeneralReadScope(excluded, parentScan); violation == nil || violation.Code != "REQUEST_READ_SCOPE_EXCLUDED" {
+		t.Fatalf("a parent scan could traverse an excluded subtree: %+v", violation)
+	}
+	allowedFile := llm.Decision{Kind: llm.DecisionTool, ServerID: "file", Tool: "file.stat", Arguments: map[string]any{"path": "/var/log/messages"}}
+	if violation := validateGeneralReadScope(excluded, allowedFile); violation != nil {
+		t.Fatalf("an unrelated sibling file was rejected: %+v", violation)
+	}
+	hostWide := llm.Decision{Kind: llm.DecisionTool, ServerID: "diagnostic", Tool: "diagnostic.build_snapshot", Arguments: map[string]any{"path": "/var/log/messages"}}
+	if violation := validateGeneralReadScope(excluded, hostWide); violation == nil || violation.Code != "REQUEST_READ_SCOPE_TOOL_MISMATCH" {
+		t.Fatalf("a host-wide diagnostic tool was accepted for a file-scoped request: %+v", violation)
+	}
 	if pathWithinScope("/var/lib/safeops/lab", "/var/lib/safeops/lab-escape/log") {
 		t.Fatal("lexical sibling escaped the authorized scope")
 	}

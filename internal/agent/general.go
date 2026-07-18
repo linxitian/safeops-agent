@@ -56,7 +56,7 @@ func (o *Orchestrator) runGeneral(ctx context.Context, value task.Task, emit Eve
 			planRecord["session_context"] = map[string]any{"source": "durable_session", "recent_message_count": len(plannerSessionContext.RecentMessages), "selected_resource_count": len(plannerSessionContext.SelectedResources), "summary_present": plannerSessionContext.Summary != ""}
 		}
 		if readScope != nil {
-			planRecord["local_read_scope"] = map[string]any{"resource_type": readScope.ResourceType, "authorized_paths": readScope.AuthorizedPaths, "source": readScope.Source}
+			planRecord["local_read_scope"] = map[string]any{"resource_type": readScope.ResourceType, "authorized_paths": readScope.AuthorizedPaths, "excluded_paths": readScope.ExcludedPaths, "source": readScope.Source}
 		}
 		if err := o.appendTrace(ctx, value, trace.PlanCreated, planRecord); err != nil {
 			return value, err
@@ -94,7 +94,7 @@ func (o *Orchestrator) runGeneral(ctx context.Context, value task.Task, emit Eve
 		decision, replannedWithoutEvidence = replanWithoutEvidence(decision, value)
 		decisionRecord := map[string]any{"objective": value.Objective, "decision_kind": decision.Kind, "decision_summary": decision.DecisionSummary, "selected_server": decision.ServerID, "selected_tool": decision.Tool, "target": decision.Target, "expected_observation": decision.ExpectedObservation}
 		if readScope != nil {
-			decisionRecord["local_read_scope"] = map[string]any{"resource_type": readScope.ResourceType, "authorized_paths": readScope.AuthorizedPaths, "source": readScope.Source}
+			decisionRecord["local_read_scope"] = map[string]any{"resource_type": readScope.ResourceType, "authorized_paths": readScope.AuthorizedPaths, "excluded_paths": readScope.ExcludedPaths, "source": readScope.Source}
 		}
 		if replannedWithoutEvidence {
 			decisionRecord["local_guardrail"] = "replanned_decision_without_evidence"
@@ -157,6 +157,7 @@ func (o *Orchestrator) runGeneral(ctx context.Context, value task.Task, emit Eve
 					"selected_tool":    violation.Tool,
 					"attempted_path":   violation.AttemptedPath,
 					"authorized_paths": readScope.AuthorizedPaths,
+					"excluded_paths":   readScope.ExcludedPaths,
 					"scope_source":     readScope.Source,
 					"replan_count":     value.Runtime.Replans,
 				}
@@ -166,7 +167,7 @@ func (o *Orchestrator) runGeneral(ctx context.Context, value task.Task, emit Eve
 				if replanErr != nil {
 					return value, replanErr
 				}
-				if err := o.appendTrace(ctx, value, trace.PlanCreated, map[string]any{"strategy": "request-scope replan", "reason_code": violation.Code, "authorized_paths": readScope.AuthorizedPaths, "replan_count": value.Runtime.Replans}); err != nil {
+				if err := o.appendTrace(ctx, value, trace.PlanCreated, map[string]any{"strategy": "request-scope replan", "reason_code": violation.Code, "authorized_paths": readScope.AuthorizedPaths, "excluded_paths": readScope.ExcludedPaths, "replan_count": value.Runtime.Replans}); err != nil {
 					return value, err
 				}
 				emitEvent(emit, value, "本地请求范围护栏拒绝越界读取，正在限定到操作员指定范围重新规划")

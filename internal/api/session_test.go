@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"safeops-agent/internal/agent"
 	"safeops-agent/internal/registry"
 	"safeops-agent/internal/session"
 	"safeops-agent/internal/storage"
@@ -104,6 +105,52 @@ func TestOverviewAndTaskListUseDurableState(t *testing.T) {
 	server.Handler().ServeHTTP(tasks, httptest.NewRequest(http.MethodGet, "/api/v1/tasks?session_id=ses_overview&state=completed&limit=1", nil))
 	if tasks.Code != http.StatusOK || !bytes.Contains(tasks.Body.Bytes(), []byte("task_overview")) {
 		t.Fatalf("task list returned %d %s", tasks.Code, tasks.Body.String())
+	}
+}
+
+func TestMessageAPIRejectsSessionWithActiveTask(t *testing.T) {
+	ctx := context.Background()
+	store, err := storage.NewFileStore(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	now := time.Now().UTC()
+	if err := store.SaveSession(ctx, session.Session{ID: "ses_busy", Name: "busy", CreatedAt: now, UpdatedAt: now}); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.SaveTask(ctx, task.Task{ID: "task_waiting", SessionID: "ses_busy", State: task.WaitingApproval, CreatedAt: now, UpdatedAt: now}); err != nil {
+		t.Fatal(err)
+	}
+	server := New(store, registry.New(registry.Config{}), &agent.Orchestrator{}, nil)
+	response := requestJSON(t, server.Handler(), http.MethodPost, "/api/v1/sessions/ses_busy/messages", map[string]any{"content": "再执行一个任务"})
+	if response.Code != http.StatusConflict || !bytes.Contains(response.Body.Bytes(), []byte("task_waiting")) {
+		t.Fatalf("active session task returned %d %s", response.Code, response.Body.String())
+	}
+	value, err := store.GetSession(ctx, "ses_busy")
+	if err != nil || len(value.Messages) != 0 {
+		t.Fatalf("rejected message changed durable session: %+v %v", value, err)
+	}
+}
+
+func TestSessionArchiveRejectsAdmittedRun(t *testing.T) {
+	ctx := context.Background()
+	store, err := storage.NewFileStore(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	now := time.Now().UTC()
+	if err := store.SaveSession(ctx, session.Session{ID: "ses_running", Name: "running", CreatedAt: now, UpdatedAt: now}); err != nil {
+		t.Fatal(err)
+	}
+	server := New(store, registry.New(registry.Config{}), nil, nil)
+	server.runningSessions["ses_running"] = struct{}{}
+	response := requestJSON(t, server.Handler(), http.MethodPatch, "/api/v1/sessions/ses_running", map[string]any{"archived": true})
+	if response.Code != http.StatusConflict {
+		t.Fatalf("running session archive returned %d %s", response.Code, response.Body.String())
+	}
+	value, err := store.GetSession(ctx, "ses_running")
+	if err != nil || value.Archived {
+		t.Fatalf("rejected archive changed durable session: %+v %v", value, err)
 	}
 }
 

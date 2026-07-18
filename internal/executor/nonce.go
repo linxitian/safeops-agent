@@ -80,5 +80,8 @@ func (s *NonceStore) save() error {
 	if err := f.Close(); err != nil {
 		return err
 	}
-	return os.Rename(name, s.path)
+	if err := os.Rename(name, s.path); err != nil {
+		return err
+	}
+	return syncDirectory(dir)
 }

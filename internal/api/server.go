@@ -36,6 +36,8 @@ type Server struct {
 	llmProvider       *llm.RuntimeProvider
 	llmSettings       *llm.SettingsStore
 	llmConfigMu       sync.Mutex
+	sessionMu         sync.Mutex
+	runningSessions   map[string]struct{}
 	executorAllowlist *executor.ConfigManager
 	runtimeLog        *runtimeLog
 	approvalResumer   interface {
@@ -87,7 +89,7 @@ func WithExecutorAllowlist(manager *executor.ConfigManager) Option {
 }
 
 func New(store storage.Store, registry *registry.Registry, orchestrator *agent.Orchestrator, traceWriter *trace.Writer, options ...Option) *Server {
-	s := &Server{store: store, registry: registry, agent: orchestrator, trace: traceWriter, hub: newEventHub(), mux: http.NewServeMux()}
+	s := &Server{store: store, registry: registry, agent: orchestrator, trace: traceWriter, runningSessions: map[string]struct{}{}, hub: newEventHub(), mux: http.NewServeMux()}
 	for _, option := range options {
 		option(s)
 	}
@@ -562,7 +564,13 @@ func (s *Server) updateSession(w http.ResponseWriter, r *http.Request) {
 		}
 		input.Name = &name
 	}
+	s.sessionMu.Lock()
+	defer s.sessionMu.Unlock()
 	if input.Archived != nil && *input.Archived {
+		if _, running := s.runningSessions[r.PathValue("sessionID")]; running {
+			writeError(w, http.StatusConflict, errors.New("session has a running task"))
+			return
+		}
 		values, err := s.store.ListTasks(r.Context())
 		if err != nil {
 			writeError(w, http.StatusInternalServerError, err)
@@ -621,18 +629,6 @@ func (s *Server) getSession(w http.ResponseWriter, r *http.Request) {
 }
 func (s *Server) createMessage(w http.ResponseWriter, r *http.Request) {
 	sessionID := r.PathValue("sessionID")
-	currentSession, err := s.store.GetSession(r.Context(), sessionID)
-	if errors.Is(err, storage.ErrNotFound) {
-		writeError(w, http.StatusNotFound, err)
-		return
-	} else if err != nil {
-		writeError(w, http.StatusInternalServerError, err)
-		return
-	}
-	if currentSession.Archived {
-		writeError(w, http.StatusConflict, errors.New("archived session must be restored before adding messages"))
-		return
-	}
 	var in struct {
 		Content string `json:"content"`
 	}
@@ -645,12 +641,60 @@ func (s *Server) createMessage(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, errors.New("content is required"))
 		return
 	}
-	taskID := id.New("task")
-	if _, err := s.agent.Prepare(r.Context(), taskID, sessionID, in.Content); err != nil {
+	s.sessionMu.Lock()
+	currentSession, err := s.store.GetSession(r.Context(), sessionID)
+	if errors.Is(err, storage.ErrNotFound) {
+		s.sessionMu.Unlock()
+		writeError(w, http.StatusNotFound, err)
+		return
+	} else if err != nil {
+		s.sessionMu.Unlock()
 		writeError(w, http.StatusInternalServerError, err)
 		return
 	}
+	if currentSession.Archived {
+		s.sessionMu.Unlock()
+		writeError(w, http.StatusConflict, errors.New("archived session must be restored before adding messages"))
+		return
+	}
+	if s.agent == nil {
+		s.sessionMu.Unlock()
+		writeError(w, http.StatusServiceUnavailable, errors.New("agent runtime is not configured"))
+		return
+	}
+	if _, running := s.runningSessions[sessionID]; running {
+		s.sessionMu.Unlock()
+		writeError(w, http.StatusConflict, errors.New("session already has a running task"))
+		return
+	}
+	tasks, err := s.store.ListTasks(r.Context())
+	if err != nil {
+		s.sessionMu.Unlock()
+		writeError(w, http.StatusInternalServerError, err)
+		return
+	}
+	for _, value := range tasks {
+		if value.SessionID == sessionID && !terminal(value.State) {
+			s.sessionMu.Unlock()
+			writeError(w, http.StatusConflict, fmt.Errorf("session already has active task %s in state %s", value.ID, value.State))
+			return
+		}
+	}
+	s.runningSessions[sessionID] = struct{}{}
+	taskID := id.New("task")
+	if _, err := s.agent.Prepare(r.Context(), taskID, sessionID, in.Content); err != nil {
+		delete(s.runningSessions, sessionID)
+		s.sessionMu.Unlock()
+		writeError(w, http.StatusInternalServerError, err)
+		return
+	}
+	s.sessionMu.Unlock()
 	go func() {
+		defer func() {
+			s.sessionMu.Lock()
+			delete(s.runningSessions, sessionID)
+			s.sessionMu.Unlock()
+		}()
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 		defer cancel()
 		_, _ = s.agent.Run(ctx, taskID, sessionID, in.Content, s.hub.publish)

@@ -250,5 +250,16 @@ func (s *Store) save(record Record) error {
 	if err := f.Close(); err != nil {
 		return err
 	}
-	return os.Rename(name, s.path(record.ID))
+	if err := os.Rename(name, s.path(record.ID)); err != nil {
+		return err
+	}
+	dir, err := os.Open(s.dir)
+	if err != nil {
+		return err
+	}
+	if err := dir.Sync(); err != nil {
+		_ = dir.Close()
+		return err
+	}
+	return dir.Close()
 }

@@ -69,4 +69,51 @@ fi
 printf '%s\n' 'SAFEOPS_LLM_API_KEY=test-secret-not-real' > "$expected"
 assert_file_equals "$expected" "$target"
 
+version_dir="$test_root/version"
+mkdir -p "$version_dir"
+version_source="$version_dir/bundle-version"
+version_destination="$version_dir/installed-version"
+version_owner="$(id -un)"
+version_group="$(id -gn)"
+printf '%s\n' 'release-1.2.3+test' > "$version_source"
+safeops_install_version "$version_source" "$version_destination" "$version_owner" "$version_group"
+assert_file_equals "$version_source" "$version_destination"
+[[ "$(stat -c %a "$version_destination")" == "644" ]] || fail_test "installed version mode is not 0644"
+[[ "$(stat -c %U "$version_destination")" == "$version_owner" ]] || fail_test "installed version owner is incorrect"
+[[ "$(stat -c %G "$version_destination")" == "$version_group" ]] || fail_test "installed version group is incorrect"
+
+version_inode="$(stat -c %i "$version_destination")"
+printf '%s\n' 'release-1.2.4' > "$version_source"
+safeops_install_version "$version_source" "$version_destination" "$version_owner" "$version_group"
+assert_file_equals "$version_source" "$version_destination"
+[[ "$(stat -c %i "$version_destination")" != "$version_inode" ]] || fail_test "version metadata was not atomically replaced"
+
+cp "$version_destination" "$expected"
+printf '%s\n' 'release-ok' 'unexpected-second-line' > "$version_source"
+if version_failure="$(safeops_install_version "$version_source" "$version_destination" "$version_owner" "$version_group" 2>&1)"; then
+  fail_test "multiline release version was accepted"
+fi
+[[ "$version_failure" != *unexpected-second-line* ]] || fail_test "invalid version output exposed source content"
+assert_file_equals "$expected" "$version_destination"
+
+version_link="$version_dir/version-link"
+ln -s "$version_source" "$version_link"
+if safeops_install_version "$version_link" "$version_destination" "$version_owner" "$version_group" >/dev/null 2>&1; then
+  fail_test "symlink release version source was accepted"
+fi
+assert_file_equals "$expected" "$version_destination"
+
+printf '%s\n' 'release-1.2.5' > "$version_source"
+version_link_target="$version_dir/operator-file"
+version_link_destination="$version_dir/version-destination-link"
+printf '%s\n' 'operator-content' > "$version_link_target"
+cp "$version_link_target" "$expected"
+ln -s "$version_link_target" "$version_link_destination"
+if safeops_install_version "$version_source" "$version_link_destination" "$version_owner" "$version_group" >/dev/null 2>&1; then
+  fail_test "symlink release version destination was accepted"
+fi
+assert_file_equals "$expected" "$version_link_target"
+
+grep -Fq 'safeops_install_version "$bundle_root/VERSION" /opt/safeops/VERSION root root' "$repo_root/deploy/install.sh" || fail_test "installer does not install verified VERSION metadata"
+
 echo "install environment regression passed"

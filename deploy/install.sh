@@ -68,6 +68,7 @@ install -d -m 0750 -o safeops -g safeops \
   /var/lib/safeops/traces /var/lib/safeops/lab /var/lib/safeops/lab/config
 chmod 2750 /var/lib/safeops/approvals
 install -d -m 0750 -o root -g safeops /var/lib/safeops/quarantine /run/safeops
+safeops_install_version "$bundle_root/VERSION" /opt/safeops/VERSION root root || fail "could not install release version metadata"
 
 for binary in "$bundle_root"/bin/*; do
   [[ -f "$binary" ]] || continue

@@ -189,18 +189,26 @@ func (r ApprovalResumer) completeSession(ctx context.Context, value task.Task, e
 }
 
 func (r ApprovalResumer) persistActionContext(ctx context.Context, value task.Task, envelope contracts.ActionEnvelope, result executor.Result) error {
-	if result.Mode != executor.LabSandbox || (envelope.Proposal.Tool != "file.quarantine" && envelope.Proposal.Tool != "file.delete" && envelope.Proposal.Tool != "file.restore_quarantine") {
+	if result.Mode != executor.LabSandbox || (envelope.Proposal.Tool != "file.create" && envelope.Proposal.Tool != "file.quarantine" && envelope.Proposal.Tool != "file.delete" && envelope.Proposal.Tool != "file.restore_quarantine") {
 		return nil
 	}
 	evidence := result.Verification.Evidence
 	original := evidence["original_path"]
 	quarantined := evidence["quarantined_path"]
 	quarantineID := evidence["quarantine_id"]
+	created := evidence["path"]
 	_, err := r.Store.UpdateSession(ctx, value.SessionID, func(s *session.Session) error {
 		if s.PinnedContext == nil {
 			s.PinnedContext = map[string]string{}
 		}
 		switch envelope.Proposal.Tool {
+		case "file.create":
+			if created == "" || created != envelope.TargetSnapshot.CanonicalPath {
+				return errors.New("verified create evidence does not match the approved target")
+			}
+			if !containsString(s.SelectedResources, created) {
+				s.SelectedResources = append(s.SelectedResources, created)
+			}
 		case "file.quarantine", "file.delete":
 			if original == "" || quarantined == "" || quarantineID == "" || original != envelope.TargetSnapshot.CanonicalPath {
 				return errors.New("verified quarantine evidence does not match the approved target")

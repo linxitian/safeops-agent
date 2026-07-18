@@ -15,6 +15,20 @@ const baseOverview = {
   sessions: { active: 1, archived: 0 },
   tasks: { COMPLETED: 0, FAILED: 0, CANCELLED: 0, WAITING_APPROVAL: 0 },
   approvals: { PENDING: 0 },
+  system: {
+    hostname: 'safeops-dev',
+    os: 'linux',
+    os_name: 'Kylin V11',
+    os_version: '11',
+    architecture: 'amd64',
+    kernel: '6.6.0',
+    uptime_seconds: 3661,
+    cpu: { usage_ratio: 0.21, busy_ticks: 210, total_ticks: 1000, collected_at: '2026-07-16T01:02:05Z' },
+    memory: { total_bytes: 8589934592, available_bytes: 6442450944, used_bytes: 2147483648, used_ratio: 0.25, swap_total_bytes: 1073741824, swap_used_bytes: 0, swap_used_ratio: 0, collected_at: '2026-07-16T01:02:05Z' },
+    load: { load_1: 0.42, load_5: 0.31, load_15: 0.28, running_processes: 2, total_processes: 120, last_pid: 4321, collected_at: '2026-07-16T01:02:05Z' },
+    disk: { path: '/', total_bytes: 107374182400, used_bytes: 32212254720, free_bytes: 75161927680, used_ratio: 0.3 },
+    generated_at: '2026-07-16T01:02:05Z',
+  },
   generated_at: '2026-07-16T01:02:05Z',
 }
 
@@ -220,6 +234,44 @@ describe('SafeOps UI interactions', () => {
     expect(partial.length).toBeLessThan(reply.length)
     await waitFor(() => expect(container.querySelector('.typewriter-cursor')).toBeNull(), { timeout: 3000 })
     expect(container.querySelector('.message.assistant .markdown')?.textContent).toBe(reply)
+  })
+
+  it('renders noisy LLM evidence output as a concise Chinese task summary', async () => {
+    const reply = 'I cannot complete the compression task for two reasons: 1) The directory /var/lib/safeops/lab/test is not in the allowlisted roots, and 2) The system only provides read-only file tools without any compression or packaging capabilities. 工具返回错误，已记录并继续调查：file.list_directory 调用失败，已记录为可恢复证据（sha256:b224a8ed31bc）：path is outside all allowlisted roots 已获得证据：file.list_roots 返回结构化证据（sha256:79c341ff836a）任务完成 执行结果 完成条件已满足 file.list_roots 返回结构化证据（sha256:79c341ff836a）2 条证据引用 · Trace VALID'
+    setupAPI({ completedReply: reply })
+    const user = userEvent.setup()
+    const { container } = render(<App />)
+
+    await screen.findByRole('heading', { name: '测试会话' })
+    await user.type(screen.getByLabelText('描述希望调查的系统问题'), '压缩打包文件')
+    await user.click(screen.getByRole('button', { name: '发送' }))
+    await waitFor(() => expect(MockEventSource.instances).toHaveLength(1))
+
+    MockEventSource.instances[0].emit('task.progress', { sequence: 1, type: 'task.progress', task_id: 'task-new', state: 'COMPLETED', message: '任务完成', timestamp: '2026-07-16T01:03:00Z' })
+
+    await waitFor(() => {
+      const text = container.querySelector('.message.assistant .markdown')?.textContent || ''
+      expect(text).toContain('当前工具能力不支持压缩打包等写动作')
+    }, { timeout: 3000 })
+    const text = container.querySelector('.message.assistant .markdown')?.textContent || ''
+    expect(text).toContain('任务完成')
+    expect(text).toContain('原因：')
+    expect(text).not.toMatch(/sha256|Trace VALID|I cannot complete|allowlisted roots/)
+  })
+
+  it('does not present a failed action mention as a successful execution', async () => {
+    setupAPI({ completedReply: '任务失败：file.create 执行失败：permission denied' })
+    const user = userEvent.setup()
+    const { container } = render(<App />)
+
+    await screen.findByRole('heading', { name: '测试会话' })
+    await user.type(screen.getByLabelText('描述希望调查的系统问题'), '创建测试文件')
+    await user.click(screen.getByRole('button', { name: '发送' }))
+    await waitFor(() => expect(MockEventSource.instances).toHaveLength(1))
+    MockEventSource.instances[0].emit('task.progress', { sequence: 1, type: 'task.progress', task_id: 'task-new', state: 'COMPLETED', message: '任务完成', timestamp: '2026-07-16T01:03:00Z' })
+
+    await waitFor(() => expect(container.querySelector('.message.assistant .markdown')?.textContent).toContain('任务失败'))
+    expect(container.querySelector('.message.assistant .markdown')?.textContent).not.toContain('任务成功')
   })
 
   it('rolls back the optimistic question when message creation fails', async () => {

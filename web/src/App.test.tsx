@@ -44,6 +44,20 @@ const overview = {
   sessions: { active: 1, archived: 0 },
   tasks: { COMPLETED: 1, FAILED: 0, CANCELLED: 0, WAITING_APPROVAL: 0 },
   approvals: { PENDING: 0 },
+  system: {
+    hostname: 'safeops-dev',
+    os: 'linux',
+    os_name: 'Kylin V11',
+    os_version: '11',
+    architecture: 'amd64',
+    kernel: '6.6.0',
+    uptime_seconds: 3661,
+    cpu: { usage_ratio: 0.23, busy_ticks: 230, total_ticks: 1000, collected_at: '2026-07-16T01:02:05Z' },
+    memory: { total_bytes: 8589934592, available_bytes: 6442450944, used_bytes: 2147483648, used_ratio: 0.25, swap_total_bytes: 1073741824, swap_used_bytes: 0, swap_used_ratio: 0, collected_at: '2026-07-16T01:02:05Z' },
+    load: { load_1: 0.42, load_5: 0.31, load_15: 0.28, running_processes: 2, total_processes: 120, last_pid: 4321, collected_at: '2026-07-16T01:02:05Z' },
+    disk: { path: '/', total_bytes: 107374182400, used_bytes: 32212254720, free_bytes: 75161927680, used_ratio: 0.3 },
+    generated_at: '2026-07-16T01:02:05Z',
+  },
   generated_at: '2026-07-16T01:02:05Z',
 }
 
@@ -203,11 +217,13 @@ describe('SafeOps Chinese operational UI', () => {
     expect(container.querySelector('img')).toBeNull()
     expect(screen.getByText('<img src=x onerror=alert(1)>')).toBeTruthy()
     expect(screen.getByText('已安全转义')).toBeTruthy()
-    expect(screen.getByText('VALID')).toBeTruthy()
+    expect(screen.getByText('有效')).toBeTruthy()
 
     await user.click(screen.getByRole('button', { name: '系统概览' }))
     await screen.findByRole('heading', { name: '系统运行全景' })
     expect(screen.getByText('39 个已发现 Tool')).toBeTruthy()
+    expect(screen.getByText('CPU 使用率')).toBeTruthy()
+    expect(screen.getByText('Kylin V11')).toBeTruthy()
 
     await user.click(screen.getByRole('button', { name: '工具中心' }))
     await screen.findByRole('heading', { name: 'MCP 插件与工具' })
@@ -318,6 +334,8 @@ describe('SafeOps Chinese operational UI', () => {
     await screen.findByRole('heading', { name: '测试会话' })
     await user.click(screen.getByRole('button', { name: '管控路径' }))
     await screen.findByRole('heading', { name: 'Agent 管控路径' })
+    expect(screen.queryByRole('checkbox', { name: '选择 /home' })).toBeNull()
+    await user.click(screen.getByRole('button', { name: '可写选择' }))
     await user.click(screen.getByRole('checkbox', { name: '选择 /home' }))
     await user.click(screen.getByRole('checkbox', { name: '选择 /home/config' }))
 
@@ -414,7 +432,7 @@ describe('SafeOps Chinese operational UI', () => {
   it('has no serious or critical automated accessibility violations', async () => {
     const { container } = render(<App />)
     await screen.findByRole('heading', { name: '测试会话' })
-    await waitFor(() => expect(screen.getByText('VALID')).toBeTruthy())
+    await waitFor(() => expect(screen.getByText('有效')).toBeTruthy())
     const results = await axe.run(container, {
       rules: {
         'color-contrast': { enabled: false },

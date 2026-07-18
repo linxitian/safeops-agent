@@ -193,6 +193,74 @@ func TestFileActionCreatesAndDeletesAllowlistedFilesThroughApproval(t *testing.T
 	}
 }
 
+func TestFileCreatePersistsSelectedResourceForFollowUpDelete(t *testing.T) {
+	ctx := context.Background()
+	store, err := storage.NewFileStore(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	traceWriter, _ := trace.NewWriter(store.Root() + "/traces")
+	approvalStore, _ := approval.NewStore(store.Root() + "/approvals")
+	catalog, err := guard.LoadCatalog(filepath.Join("..", "..", "policies", "tools.yaml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	now := time.Now().UTC()
+	createPath := "/var/lib/safeops/lab/created.txt"
+	s := session.Session{ID: "ses_create_then_delete", Name: "create then delete", PinnedContext: map[string]string{}, CreatedAt: now, UpdatedAt: now}
+	if err := store.SaveSession(ctx, s); err != nil {
+		t.Fatal(err)
+	}
+	secret := []byte("0123456789abcdef0123456789abcdef")
+	preparer := &ActionPreparer{Store: store, Approvals: approvalStore, Safety: guard.NewSafetyPipeline(catalog), Trace: traceWriter, Secret: secret}
+	targets := fakeFileTargets{snapshots: map[string]contracts.TargetSnapshot{
+		createPath: newFileSnapshot(createPath, 100),
+	}}
+	orchestrator := &Orchestrator{Store: store, Actions: preparer, FileTargets: targets, Trace: traceWriter}
+
+	createRequest := "请创建文件 /var/lib/safeops/lab/created.txt 内容是 hello"
+	if _, err := orchestrator.Prepare(ctx, "task_create_followup", s.ID, createRequest); err != nil {
+		t.Fatal(err)
+	}
+	createWaiting, err := orchestrator.Run(ctx, "task_create_followup", s.ID, createRequest, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	createRecord, err := approvalStore.Resolve(ctx, createWaiting.PendingApprovalID, true, "operator approved create")
+	if err != nil {
+		t.Fatal(err)
+	}
+	createResult := executor.Result{Tool: "file.create", Mode: executor.LabSandbox, Status: "SUCCEEDED", ActionID: "create_action", Changed: true, Verification: &executor.Verification{Verified: true, Evidence: map[string]string{"path": createPath}}, StartedAt: now, FinishedAt: now}
+	resumer := ApprovalResumer{Store: store, Executor: fakeActionExecutor{result: createResult}, Trace: traceWriter}
+	if _, err := resumer.Resume(ctx, createRecord); err != nil {
+		t.Fatal(err)
+	}
+	s, err = store.GetSession(ctx, s.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(s.SelectedResources) != 1 || s.SelectedResources[0] != createPath {
+		t.Fatalf("created file was not pinned as selected resource: %+v", s.SelectedResources)
+	}
+
+	targets.snapshots[createPath] = fileSnapshot(createPath, 101)
+	deleteRequest := "删除该文件"
+	if _, err := orchestrator.Prepare(ctx, "task_delete_followup", s.ID, deleteRequest); err != nil {
+		t.Fatal(err)
+	}
+	deleteWaiting, err := orchestrator.Run(ctx, "task_delete_followup", s.ID, deleteRequest, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var deleteEnvelope contracts.ActionEnvelope
+	if err := json.Unmarshal(deleteWaiting.PendingAction, &deleteEnvelope); err != nil {
+		t.Fatal(err)
+	}
+	if deleteWaiting.State != task.WaitingApproval || deleteEnvelope.Proposal.Tool != "file.delete" || deleteEnvelope.TargetSnapshot.CanonicalPath != createPath {
+		t.Fatalf("follow-up delete did not bind to created file: %+v %+v", deleteWaiting, deleteEnvelope)
+	}
+}
+
 func TestParseCreateFileRequestCombinesFilenameDirectoryAndToday(t *testing.T) {
 	now := time.Date(2026, 7, 18, 9, 30, 0, 0, time.Local)
 	target, content, err := parseCreateFileRequestAt("创建一个2.txt，填写今天日期，在/var/lib/safeops/lab", now)
@@ -204,6 +272,29 @@ func TestParseCreateFileRequestCombinesFilenameDirectoryAndToday(t *testing.T) {
 	}
 	if content != "2026-07-18" {
 		t.Fatalf("unexpected content: %q", content)
+	}
+}
+
+func TestParseCreateFileRequestPreservesMarkerPrefixedExplicitPath(t *testing.T) {
+	target, content, err := parseCreateFileRequestAt("创建 /var/lib/safeops/lab/创建文件1.txt", time.Now())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if target != "/var/lib/safeops/lab/创建文件1.txt" {
+		t.Fatalf("unexpected target path: %q", target)
+	}
+	if content != "" {
+		t.Fatalf("unexpected content: %q", content)
+	}
+}
+
+func TestResolveFileActionTargetPreservesActionMarkerFilename(t *testing.T) {
+	target, index, source, err := resolveFileActionTarget("请删除 /var/lib/safeops/lab/删除foo.txt", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if target != "/var/lib/safeops/lab/删除foo.txt" || index != -1 || source != "request.path" {
+		t.Fatalf("explicit marker-prefixed path was rewritten: %q %d %q", target, index, source)
 	}
 }
 

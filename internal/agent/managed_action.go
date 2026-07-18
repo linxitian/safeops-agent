@@ -229,10 +229,19 @@ func managedActionEvidenceSupports(value task.Task, target contracts.TargetRef, 
 
 func managedActionIntentAllows(request, tool string) bool {
 	request = strings.ToLower(strings.TrimSpace(request))
+	if containsAny(request, "不要执行", "不要操作", "禁止执行", "只检查", "仅检查", "只查看", "仅查看", "只读", "只建议", "仅建议", "do not execute", "don't execute", "do not act", "read only", "read-only", "only inspect", "only check", "advice only") {
+		return false
+	}
 	switch tool {
 	case "service.restart":
+		if containsAny(request, "不要重启", "不重启", "无需重启", "禁止重启", "do not restart", "don't restart", "must not restart", "without restarting") {
+			return false
+		}
 		return containsAny(request, "重启", "重新启动", "restart service", "restart the service", "service restart")
 	case "process.terminate":
+		if containsAny(request, "不要终止进程", "不终止进程", "不要结束进程", "不要停止进程", "禁止终止进程", "do not terminate", "don't terminate", "do not kill", "don't kill", "without terminating") {
+			return false
+		}
 		return containsAny(request, "终止进程", "结束进程", "停止进程", "杀掉进程", "terminate process", "terminate the process", "kill process", "kill the process", "stop process", "stop the process")
 	default:
 		return false

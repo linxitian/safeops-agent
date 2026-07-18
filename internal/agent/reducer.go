@@ -1,6 +1,7 @@
 package agent
 
 import (
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -35,7 +36,7 @@ func initializeRuntime(checkpoint *task.RuntimeCheckpoint, now time.Time) {
 func beginDecision(checkpoint *task.RuntimeCheckpoint, now time.Time) error {
 	initializeRuntime(checkpoint, now)
 	if !now.Before(checkpoint.DeadlineAt) {
-		return errors.New("agent task deadline reached")
+		return fmt.Errorf("agent task deadline reached: %w", context.DeadlineExceeded)
 	}
 	if checkpoint.Iterations >= checkpoint.MaxIterations {
 		return fmt.Errorf("agent iteration limit reached: %d", checkpoint.MaxIterations)

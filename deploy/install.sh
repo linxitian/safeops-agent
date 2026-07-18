@@ -49,6 +49,7 @@ for binary in "${required_binaries[@]}"; do
   [[ -f "$bundle_root/bin/$binary" ]] || fail "required binary is missing: $binary"
 done
 [[ -f "$bundle_root/web/index.html" ]] || fail "prebuilt frontend index.html is missing"
+safeops_validate_version_source "$bundle_root/VERSION" || fail "bundle VERSION is invalid"
 
 if ! getent group safeops >/dev/null; then
   groupadd --system safeops || fail "could not create safeops group"

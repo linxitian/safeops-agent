@@ -76,6 +76,14 @@ version_destination="$version_dir/installed-version"
 version_owner="$(id -un)"
 version_group="$(id -gn)"
 printf '%s\n' 'release-1.2.3+test' > "$version_source"
+safeops_validate_version_identifier 'release-1.2.3+test'
+if safeops_validate_version_identifier >/dev/null 2>&1; then
+  fail_test "missing release identifier was accepted"
+fi
+if safeops_validate_version_identifier 'release/invalid' >/dev/null 2>&1; then
+  fail_test "invalid release identifier was accepted"
+fi
+safeops_validate_version_source "$version_source"
 safeops_install_version "$version_source" "$version_destination" "$version_owner" "$version_group"
 assert_file_equals "$version_source" "$version_destination"
 [[ "$(stat -c %a "$version_destination")" == "644" ]] || fail_test "installed version mode is not 0644"
@@ -90,6 +98,10 @@ assert_file_equals "$version_source" "$version_destination"
 
 cp "$version_destination" "$expected"
 printf '%s\n' 'release-ok' 'unexpected-second-line' > "$version_source"
+if version_validation_failure="$(safeops_validate_version_source "$version_source" 2>&1)"; then
+  fail_test "multiline release version passed preflight validation"
+fi
+[[ "$version_validation_failure" != *unexpected-second-line* ]] || fail_test "preflight failure output exposed source content"
 if version_failure="$(safeops_install_version "$version_source" "$version_destination" "$version_owner" "$version_group" 2>&1)"; then
   fail_test "multiline release version was accepted"
 fi
@@ -114,10 +126,16 @@ if safeops_install_version "$version_source" "$version_link_destination" "$versi
 fi
 assert_file_equals "$expected" "$version_link_target"
 
+version_preflight_line="$(grep -nF 'safeops_validate_version_source "$bundle_root/VERSION"' "$repo_root/deploy/install.sh" | cut -d: -f1)"
+host_mutation_line="$(grep -nF 'if ! getent group safeops' "$repo_root/deploy/install.sh" | cut -d: -f1)"
 version_install_line="$(grep -nF 'safeops_install_version "$bundle_root/VERSION" /opt/safeops/VERSION root root' "$repo_root/deploy/install.sh" | cut -d: -f1)"
 health_gate_line="$(grep -nF 'if curl --fail --silent --show-error --max-time 3 "$health_url"' "$repo_root/deploy/install.sh" | cut -d: -f1)"
+[[ -n "$version_preflight_line" ]] || fail_test "installer VERSION preflight is missing"
+[[ -n "$host_mutation_line" ]] || fail_test "installer host mutation boundary is missing"
 [[ -n "$version_install_line" ]] || fail_test "installer does not install verified VERSION metadata"
 [[ -n "$health_gate_line" ]] || fail_test "installer health gate is missing"
+[[ "$version_preflight_line" -lt "$host_mutation_line" ]] || fail_test "installer validates VERSION after host mutation begins"
 [[ "$version_install_line" -gt "$health_gate_line" ]] || fail_test "installer publishes VERSION before the release is healthy"
+grep -qF 'safeops_validate_version_identifier "$version"' "$repo_root/scripts/build-release.sh" || fail_test "release builder does not validate VERSION"
 
 echo "install environment regression passed"

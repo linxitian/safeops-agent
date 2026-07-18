@@ -3,6 +3,8 @@ set -euo pipefail
 
 repo_root="$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)"
 cd "$repo_root"
+# shellcheck source=../deploy/install-env.sh
+source "$repo_root/deploy/install-env.sh"
 
 go_bin="${GO:-go}"
 npm_bin="${NPM:-npm}"
@@ -10,6 +12,15 @@ release_dir="$repo_root/dist/release"
 build_dir="$repo_root/dist/build-release"
 bundle="$build_dir/safeops-agent"
 archive_name="safeops-agent-linux-loong64.tar.gz"
+version="${SAFEOPS_VERSION:-}"
+if [[ -z "$version" ]]; then
+  version="$(git describe --tags --always --dirty 2>/dev/null || true)"
+fi
+[[ -n "$version" ]] || version="0.1.0-dev"
+safeops_validate_version_identifier "$version" || {
+  echo "[release] SAFEOPS_VERSION is invalid" >&2
+  exit 1
+}
 
 echo "[release] Go test"
 CGO_ENABLED=0 "$go_bin" test ./...
@@ -55,11 +66,6 @@ cp lab/README.md "$bundle/lab/README.md"
 cp README.md STATUS.md "$bundle/"
 chmod 0755 "$bundle/deploy/install.sh" "$bundle/deploy/uninstall.sh"
 
-version="${SAFEOPS_VERSION:-}"
-if [[ -z "$version" ]]; then
-  version="$(git describe --tags --always --dirty 2>/dev/null || true)"
-fi
-[[ -n "$version" ]] || version="0.1.0-dev"
 printf '%s\n' "$version" > "$bundle/VERSION"
 
 (

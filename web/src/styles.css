@@ -50,7 +50,7 @@ button:focus-visible, textarea:focus-visible, input:focus-visible, summary:focus
 .safety-note span { color: var(--green); font-size: 12px; }
 .safety-note small { color: var(--muted); font-size: 10px; margin-top: 4px; line-height: 1.5; }
 
-.conversation { display: grid; grid-template-rows: auto 1fr auto; min-height: 100vh; position: relative; }
+.conversation { display: grid; grid-template-rows: auto minmax(0,1fr) auto; height: 100vh; height: 100dvh; min-height: 0; max-height: 100dvh; overflow: hidden; position: relative; }
 .conversation > header { min-height: 80px; padding: 20px 34px 14px; display: flex; align-items: center; justify-content: space-between; gap: 14px; border-bottom: 1px solid var(--line); }
 .conversation > header > div { min-width: 0; flex: 1; }
 .conversation > header h1 { margin: 2px 0 0; font-size: 19px; font-weight: 500; }
@@ -58,7 +58,7 @@ button:focus-visible, textarea:focus-visible, input:focus-visible, summary:focus
 .status { border: 1px solid var(--line); padding: 7px 10px; border-radius: 20px; color: #9db4ab; font-size: 11px; }
 .status i { width: 6px; height: 6px; display: inline-block; border-radius: 50%; background: var(--green); box-shadow: 0 0 9px var(--green); margin-right: 7px; }
 .sidebar-toggle { display: none; width: 34px; height: 34px; border: 1px solid var(--line); border-radius: 9px; background: rgba(10,24,20,.8); color: #a7bbb3; cursor: pointer; }
-.messages { padding: 36px max(36px, 8vw); overflow-y: auto; max-height: calc(100vh - 185px); }
+.messages { min-height: 0; padding: 36px max(36px, 8vw); overflow-y: auto; overscroll-behavior: contain; scrollbar-gutter: stable; }
 .welcome { max-width: 590px; margin: 11vh auto 60px; text-align: center; }
 .welcome .orb { width: 66px; height: 66px; margin: 0 auto 20px; display: grid; place-items: center; border: 1px solid rgba(86,224,162,.36); border-radius: 22px; background: radial-gradient(circle, rgba(86,224,162,.18), transparent 70%); color: var(--green); font: 600 29px ui-monospace, monospace; box-shadow: 0 0 45px rgba(86,224,162,.08); }
 .welcome h2 { font-size: 22px; font-weight: 500; }
@@ -318,7 +318,7 @@ button:focus-visible, textarea:focus-visible, input:focus-visible, summary:focus
 @media (max-width: 1220px) {
   .shell { grid-template-columns: 245px minmax(500px,1fr); }
   .task-panel { grid-column: 2; max-height: none; border-top: 1px solid var(--line); border-left: 0; }
-  .conversation { min-height: 100vh; }
+  .conversation { min-height: 0; }
   .metric-grid, .boundary-grid, .resource-grid { grid-template-columns: 1fr 1fr; }
   .system-identity { grid-template-columns: repeat(3,minmax(0,1fr)); }
   .system-facts { grid-template-columns: 1fr 1fr; }
@@ -331,7 +331,8 @@ button:focus-visible, textarea:focus-visible, input:focus-visible, summary:focus
   .shell.sidebar-open .sidebar { transform: translateX(0); }
   .sidebar-toggle { display: grid; place-items: center; flex: 0 0 auto; }
   .sidebar nav { max-height: 45vh; }
-  .conversation, .task-panel { min-height: auto; max-height: none; }
+  .conversation { height: 100vh; height: 100dvh; min-height: 0; max-height: 100dvh; }
+  .task-panel { min-height: auto; max-height: none; }
   .messages, .workspace-page { max-height: none; }
   .workspace-grid, .server-grid, .resource-grid, .system-identity, .system-facts { grid-template-columns: 1fr; }
   .live-stamp { position: static; display: inline-block; margin-top: 12px; }

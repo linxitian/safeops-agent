@@ -259,6 +259,24 @@ describe('SafeOps Chinese operational UI', () => {
     expect(screen.getByRole('heading', { name: '从真实系统证据开始' })).toBeTruthy()
   })
 
+  it('keeps a long message history in a dedicated scroll region before the composer', async () => {
+    const messages = Array.from({ length: 80 }, (_, index) => ({
+      message_id: `message-${index}`,
+      role: index % 2 === 0 ? 'user' : 'assistant',
+      content: `长会话消息 ${index + 1}`,
+      created_at: `2026-07-16T01:${String(index % 60).padStart(2, '0')}:03Z`,
+    }))
+    mockAPI({ session: { ...session, messages } })
+    const { container } = render(<App />)
+
+    await screen.findByRole('heading', { name: '测试会话' })
+    const history = screen.getByLabelText('会话消息')
+    const composer = container.querySelector('form.composer')
+    expect(history.querySelectorAll('.message')).toHaveLength(80)
+    expect(history.nextElementSibling).toBe(composer)
+    expect(history.contains(screen.getByLabelText('描述希望调查的系统问题'))).toBe(false)
+  })
+
   it('treats null workspace collections as empty lists', async () => {
     mockAPI({
       approvals: null,

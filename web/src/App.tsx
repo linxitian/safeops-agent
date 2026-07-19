@@ -701,7 +701,7 @@ export default function App() {
   }
 
   const renderConsole = () => <>
-    <section className="messages" ref={messagesRef}>
+    <section className="messages" ref={messagesRef} aria-label="会话消息">
       {!(active?.messages || []).length && <div className="welcome"><div className="orb">S</div><h2>从真实系统证据开始</h2><p>输入需要调查、恢复或受控处理的系统问题。涉及写动作时，SafeOps 会先展示精确目标、风险、过期时间和独立审批。</p></div>}
       {(active?.messages || []).map(message => {
         const isStreaming = streamingReply?.messageID === message.message_id && streamingReply.visibleCount < streamingReply.glyphs.length

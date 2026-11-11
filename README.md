@@ -2,7 +2,7 @@
 
 [![CI](https://github.com/linxitian/safeops-agent/actions/workflows/ci.yml/badge.svg)](https://github.com/linxitian/safeops-agent/actions/workflows/ci.yml)
 
-面向银河麒麟操作系统的安全自治智能运维智能体，中国软件杯 A2 赛题项目。
+面向银河麒麟操作系统的安全自治智能运维智能体。
 
 SafeOps 是自然语言与 Linux 运维能力之间的安全桥梁：它通过真实系统证据和 MCP 工具完成调查，并把受控写操作约束在“意图校验、风险评估、审批、最小权限执行、验证与回滚”的边界内。它不是普通聊天机器人，也不会把模型生成的 Shell 命令直接交给 Linux。
 
